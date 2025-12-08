@@ -1,0 +1,41 @@
+syntax = "proto3";
+package fusion;
+
+import "sensors/uav.proto";
+import "sensors/radar.proto";
+import "sensors/sigint.proto";
+import "common/geo.proto"; 
+
+service FusionService {
+    rpc StreamUAV(stream sensors.UAVTelemetry) returns (FusionAck);
+    rpc StreamRadar(stream sensors.RadarDetection) returns (FusionAck);
+    rpc StreamSigint(stream sensors.SigintHit) returns (FusionAck);
+}
+
+message FusionAck {
+    bool ok = 1;
+    string message = 2;
+}
+
+service FusionMonitor {
+    rpc SubscribeFusedTracks (MonitorRequest) returns (stream MonitorResponse);
+}
+
+message MonitorRequest {
+    bool include_history = 1; 
+}
+
+message FusedTrack {
+    uint32 track_id = 1;
+    common.GeoPoint position = 2;
+    double velocity = 3;
+    double heading = 4;
+    double confidence = 5;
+    
+    // Which sensors contributed to this fused track
+    repeated string source_sensors = 6; // example: ["RADAR", "SIGINT"]
+}
+
+message MonitorResponse {
+    repeated FusedTrack tracks = 1;
+}

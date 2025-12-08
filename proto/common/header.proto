@@ -1,0 +1,7 @@
+syntax = "proto3";
+package common;
+
+message Header {
+  int64 timestamp = 1;   // ms since epoch
+  string sensor_id = 2;  // "radar01", "uav02", etc.
+}

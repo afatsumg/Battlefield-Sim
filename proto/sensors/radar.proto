@@ -1,0 +1,28 @@
+syntax = "proto3";
+package sensors;
+
+import "common/header.proto"; 
+
+// Represents a raw detection or track update reported by a radar sensor.
+message RadarDetection {
+  // [1] Standard message header, includes timestamp.
+  common.Header header = 1; 
+  
+  // [2] The radar's local unique identifier for the detected target (e.g., "TRK-001").
+  string track_id = 2; 
+  
+  // [3] The distance from the radar antenna to the target. Measured in meters (m).
+  double range = 3;       // meter 
+  
+  // [4] The horizontal angular direction to the target. Measured in degrees (Azimuth).
+  double bearing = 4;     // degrees (Azimuth)
+  
+  // [5] The vertical angular direction to the target relative to the horizontal plane. Measured in degrees.
+  double elevation = 5;   // elevation degrees
+  
+  // [6] Radar Cross Section (RCS) estimate, which indicates the target's size/reflectivity. Measured in decibel-square meters (dBsm).
+  double rcs = 6;         // dBsm
+  
+  // [7] The radial speed of the target (speed along the line of sight). Positive for moving away, negative for moving closer. Measured in meters per second (m/s).
+  double velocity = 7;    // m/s (Doppler)
+}

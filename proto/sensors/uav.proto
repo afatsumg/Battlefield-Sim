@@ -1,0 +1,26 @@
+syntax = "proto3";
+package sensors;
+
+import "common/header.proto"; // Standard header containing timestamp and sequence number.
+import "common/geo.proto";    // Geographical point definition (Latitude, Longitude, Altitude).
+
+// Represents the telemetry data sent by an Unmanned Aerial Vehicle (UAV).
+message UAVTelemetry {
+  // [1] Standard message header, typically includes timestamp and message source/sequence ID.
+  common.Header header = 1; 
+  
+  // [2] Unique identifier for the specific UAV transmitting the data (e.g., "UAV-001").
+  string uav_id = 2; 
+  
+  // [3] The current geographical position of the UAV (Latitude, Longitude, Altitude).
+  common.GeoPoint position = 3; 
+  
+  // [4] The UAV's current ground speed, measured in meters per second (m/s).
+  double speed = 4; 
+  
+  // [5] The direction the UAV is currently heading (0-360 degrees).
+  double heading = 5; 
+  
+  // [6] The operational status of the UAV (e.g., "FLYING", "LOITERING", "RETURNING_HOME", "EMERGENCY").
+  string status = 6;
+}

@@ -1,0 +1,22 @@
+syntax = "proto3";
+package sensors;
+
+import "common/header.proto";
+
+// Represents a single intercept or detection event from a Signals Intelligence (SIGINT) sensor.
+message SigintHit {
+  // [1] Standard message header, typically includes timestamp and message sequence ID.
+  common.Header header = 1; 
+  
+  // [2] The center frequency of the intercepted signal, typically measured in Hertz (Hz).
+  double frequency = 2; 
+  
+  // [3] The measured signal strength or power level received at the sensor.
+  double power = 3; 
+  
+  // [4] The certainty or probability (0.0 to 1.0) that this detection is a valid signal hit.
+  double confidence = 4; 
+  
+  // [5] The line-of-sight direction to the source of the emission, measured in degrees (0-360).
+  double bearing = 5;
+}

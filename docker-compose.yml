@@ -1,0 +1,69 @@
+version: "3.8"
+
+services:
+  fusion_service:
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+    image: battlefield-sim:latest
+
+    command: bash -lc "cd /workspace/build && ./services/fusion_service/fusion_service"
+    ports:
+      - "6000:6000"
+      - "6005:6005"
+    restart: on-failure
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  monitor_cli:
+    image: battlefield-sim:latest
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+
+    command: bash -lc "cd /workspace/build && ./services/monitor_cli/monitor_cli fusion_service:6005"
+    depends_on:
+      - fusion_service
+    restart: on-failure
+
+  sensor_uav:
+    image: battlefield-sim:latest
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+
+    environment:
+      - FUSION_ADDR=fusion_service:6000
+    command: bash -lc "cd /workspace/build && ./services/sensor_uav/sensor_uav"
+    depends_on:
+      - fusion_service
+    restart: on-failure
+
+  sensor_radar:
+    image: battlefield-sim:latest
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+
+    environment:
+      - FUSION_ADDR=fusion_service:6000
+    command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
+    depends_on:
+      - fusion_service
+    restart: on-failure
+
+  sensor_sigint:
+    image: battlefield-sim:latest
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+
+    environment:
+      - FUSION_ADDR=fusion_service:6000
+    command: bash -lc "cd /workspace/build && ./services/sensor_sigint/sensor_sigint"
+    depends_on:
+      - fusion_service
+    restart: on-failure
