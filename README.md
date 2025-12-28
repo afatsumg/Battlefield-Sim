@@ -3,6 +3,13 @@
 This repository implements a **high-performance distributed battlefield simulation**.  
 It features real-time sensor streams (UAV, Radar, SIGINT), a **Kalman Filter-based fusion service**, and a monitoring system that provides **sub-10-meter precision** in fused tracks.
 
+Example output:
+
+![Example Output](./images/performance_metrics.png)
+
+Performance Analysis:
+The system achieves a significant precision boost by fusing multi-radar data. After the initial Kalman convergence, the average tracking error stays within 10-15 meters, even with noisy Radar sensors ($\sigma=35$).
+
 ---
 
 ## 📌 Project Overview
