@@ -15,6 +15,7 @@ target_include_directories(fusion_service
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(OpenCV REQUIRED)
 
 find_package(Threads REQUIRED)
 
@@ -26,6 +27,7 @@ target_link_libraries(fusion_service
         protobuf::libprotobuf
         
         yaml-cpp
+        opencv_core
 
     Threads::Threads
     ${UTF8_RANGE_LIB}

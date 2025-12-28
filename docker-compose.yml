@@ -1,13 +1,12 @@
-version: "3.8"
-
 services:
   fusion_service:
     build:
       context: .
       dockerfile: docker/dev.Dockerfile
-    image: battlefield-sim:latest
-
-    command: bash -lc "cd /workspace/build && ./services/fusion_service/fusion_service"
+    image: battlefield-sim:fusion
+    volumes:
+      - ./logs:/workspace/shared
+    command: bash -lc "mkdir -p /workspace/shared/logs && cd /workspace/build && ./services/fusion_service/fusion_service"
     ports:
       - "6000:6000"
       - "6005:6005"
@@ -19,7 +18,7 @@ services:
         max-file: "3"
 
   monitor_cli:
-    image: battlefield-sim:latest
+    image: battlefield-sim:fusion
     build:
       context: .
       dockerfile: docker/dev.Dockerfile
@@ -30,39 +29,70 @@ services:
     restart: on-failure
 
   sensor_uav:
-    image: battlefield-sim:latest
+    image: battlefield-sim:fusion
     build:
       context: .
       dockerfile: docker/dev.Dockerfile
-
+    volumes:
+      - ./logs:/workspace/shared
     environment:
       - FUSION_ADDR=fusion_service:6000
+      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
     command: bash -lc "cd /workspace/build && ./services/sensor_uav/sensor_uav"
     depends_on:
       - fusion_service
     restart: on-failure
 
-  sensor_radar:
-    image: battlefield-sim:latest
+  sensor_radar_1:
+    image: battlefield-sim:fusion
     build:
       context: .
       dockerfile: docker/dev.Dockerfile
-
+    volumes:
+      - ./logs:/workspace/shared
     environment:
       - FUSION_ADDR=fusion_service:6000
+      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
+      - RADAR_ID=RADAR-1
+      - RADAR_LAT=39.900
+      - RADAR_LON=32.800
+      - RADAR_RANGE_SIGMA=20.0
+      - RADAR_BEARING_SIGMA=0.8
+    command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
+    depends_on:
+      - fusion_service
+    restart: on-failure
+
+  sensor_radar_2:
+    image: battlefield-sim:fusion
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+    volumes:
+      - ./logs:/workspace/shared
+    environment:
+      - FUSION_ADDR=fusion_service:6000
+      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
+      - RADAR_ID=RADAR-2
+      - RADAR_LAT=39.905
+      - RADAR_LON=32.931
+      - RADAR_RANGE_SIGMA=35.0
+      - RADAR_BEARING_SIGMA=1.2
     command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
     depends_on:
       - fusion_service
     restart: on-failure
 
   sensor_sigint:
-    image: battlefield-sim:latest
+    image: battlefield-sim:fusion
     build:
       context: .
       dockerfile: docker/dev.Dockerfile
-
+    volumes:
+      - ./logs:/workspace/shared
     environment:
       - FUSION_ADDR=fusion_service:6000
+      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
     command: bash -lc "cd /workspace/build && ./services/sensor_sigint/sensor_sigint"
     depends_on:
       - fusion_service

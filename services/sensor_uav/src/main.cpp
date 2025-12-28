@@ -2,8 +2,10 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include <cmath> // For sine function
+#include <cmath> // for sin() function
 #include <random>
+#include <fstream>
+#include <filesystem>
 
 int main()
 {
@@ -21,8 +23,21 @@ int main()
     double current_heading = 45.0;
     double current_speed = 80.0;
 
+    // RNG kept for optional use; default ground truth is noise-free
     std::mt19937 generator(std::random_device{}());
-    std::uniform_real_distribution<> dist(-0.0001, 0.0001); // Small GPS jitter
+    std::uniform_real_distribution<> dist(-0.0001, 0.0001); // unused unless you enable noise
+
+    // Shared ground truth file (can be overridden)
+    const char* env_truth = std::getenv("SHARED_TRUTH_PATH");
+    std::string truth_path = env_truth ? env_truth : std::string("/workspace/shared/ground_truth.txt");
+
+    // Ensure shared directory exists for ground truth
+    try {
+        auto parent = std::filesystem::path(truth_path).parent_path();
+        if (!parent.empty()) std::filesystem::create_directories(parent);
+    } catch (...) {
+        // ignore
+    }
 
     while (true)
     {
@@ -34,9 +49,9 @@ int main()
             std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
         msg.set_uav_id("UAV-ALFA");
 
-        // Position with slight random noise
-        current_lat += 0.0005 + dist(generator);         // Towards north with noise
-        current_lon += std::sin(time_s / 50.0) * 0.0002; // East-West oscillation with noise
+        // Position (ground-truth, noise-free)
+        current_lat += 0.0005;                          // Towards north (no noise)
+        current_lon += std::sin(time_s / 50.0) * 0.0002; // East-West oscillation
         current_alt += std::cos(time_s / 10.0) * 50;     // Small altitude changes
         msg.mutable_position()->set_lat(current_lat);
         msg.mutable_position()->set_lon(current_lon);
@@ -53,8 +68,17 @@ int main()
             break;
         }
 
-        std::cout << "[UAV] Sent | Lat: " << current_lat << " | Alt: "
-                  << msg.mutable_position()->alt() << std::endl;
+        // Publish ground truth to shared file for sensors/fusion comparisons
+        try {
+            // Ensure shared directory exists (best-effort)
+            std::ofstream ofs(truth_path, std::ofstream::trunc);
+            if (ofs) {
+                ofs << std::fixed << std::setprecision(9)
+                    << msg.position().lat() << " " << msg.position().lon() << " " << msg.position().alt() << " "
+                    << msg.header().timestamp() << "\n";
+                ofs.close();
+            }
+        } catch (...) {}
 
         // Send data at 1 Hz
         std::this_thread::sleep_for(std::chrono::seconds(1));

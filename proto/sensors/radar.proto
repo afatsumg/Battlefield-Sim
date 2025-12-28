@@ -25,4 +25,14 @@ message RadarDetection {
   
   // [7] The radial speed of the target (speed along the line of sight). Positive for moving away, negative for moving closer. Measured in meters per second (m/s).
   double velocity = 7;    // m/s (Doppler)
+  
+  // [8] The radar sensor origin latitude (WGS84 degrees). Optional, used by
+  // fusion to convert polar detections into geo coordinates when provided.
+  double radar_lat = 8;
+
+  // [9] The radar sensor origin longitude (WGS84 degrees).
+  double radar_lon = 9;
+
+  // [10] The radar sensor origin altitude (meters).
+  double radar_alt = 10;
 }

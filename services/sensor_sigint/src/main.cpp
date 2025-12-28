@@ -3,6 +3,7 @@
 #include <thread>
 #include <chrono>
 #include <random>
+#include <fstream>
 
 int main()
 {
@@ -17,8 +18,17 @@ int main()
     double current_confidence = 0.95;
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::normal_distribution<> freq_dist(1450.0, 5.0);         // Around 1450 MHz
+
+    // noise / base params from env
+    const char* env_freq_mean = std::getenv("SIGINT_FREQ_MEAN");
+    const char* env_freq_sigma = std::getenv("SIGINT_FREQ_SIGMA");
+    double freq_mean = env_freq_mean ? atof(env_freq_mean) : 1450.0;
+    double freq_sigma = env_freq_sigma ? atof(env_freq_sigma) : 5.0;
+    std::normal_distribution<> freq_dist(freq_mean, freq_sigma);
     std::uniform_real_distribution<> bearing_dist(0.0, 360.0); // 0-360 degrees
+
+    const char* env_truth = std::getenv("SHARED_TRUTH_PATH");
+    std::string truth_path = env_truth ? env_truth : std::string("/workspace/shared/ground_truth.txt");
 
     int packet_count = 0;
     while (true)
@@ -31,12 +41,27 @@ int main()
             std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
         msg.mutable_header()->set_sensor_id("SIGINT-01");
 
-        // Payload
-        msg.set_frequency(freq_dist(gen));
-        current_power += std::rand() % 10;
-        msg.set_power(current_power);
+        // Payload: try reading ground truth to correlate signal
+        double gt_lat=0, gt_lon=0, gt_alt=0;
+        bool have_truth=false;
+        std::ifstream ifs(truth_path);
+        if (ifs) { ifs >> gt_lat >> gt_lon >> gt_alt; have_truth=true; ifs.close(); }
+
+        double freq_val = freq_dist(gen);
+        double power_val = current_power + (std::rand() % 10);
+        double bearing_val = bearing_dist(gen);
+
+        if (have_truth) {
+            // simple deterministic modulation: higher altitude -> slightly higher frequency
+            freq_val += (gt_alt - 1000.0) * 0.01;
+            // bearing: approximate bearing from origin (0,0) for demo
+            bearing_val = std::fmod(std::abs(gt_lon) * 10.0, 360.0) + (bearing_dist(gen) - 180.0) * 0.05;
+        }
+
+        msg.set_frequency(freq_val);
+        msg.set_power(power_val);
         msg.set_confidence(current_confidence);
-        msg.set_bearing(bearing_dist(gen)); // Random bearing
+        msg.set_bearing(bearing_val);
 
         if (!client.sendHit(msg))
         {

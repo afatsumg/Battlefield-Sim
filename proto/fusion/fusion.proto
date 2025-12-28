@@ -34,6 +34,13 @@ message FusedTrack {
     
     // Which sensors contributed to this fused track
     repeated string source_sensors = 6; // example: ["RADAR", "SIGINT"]
+
+    // Distance in meters between the fused position and the UAV reported position
+    // (set when a UAV report exists for the same track). Useful to evaluate fusion error.
+    double uav_error_m = 7;
+
+    // The last reported UAV GeoPoint (if a UAV report exists for this track).
+    common.GeoPoint uav_reported = 8;
 }
 
 message MonitorResponse {

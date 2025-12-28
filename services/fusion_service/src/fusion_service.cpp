@@ -1,246 +1,213 @@
 #include "fusion_service.h"
 #include <iostream>
 #include <cmath>
-#include <algorithm> // std::max için
+#include <algorithm>
 #include <sstream>
+#include <fstream>
+#include <filesystem>
+#include <iomanip>
+#include <map>
+#include <numeric>
 
-// Fixed radar position (for simulation simplicity)
 namespace
 {
-    constexpr double RADAR_LAT = 39.9;
-    constexpr double RADAR_LON = 32.8;
-    constexpr double RADAR_ALT = 150.0;
-    constexpr double EARTH_RADIUS = 6371000.0; // Metre
+    constexpr double EARTH_RADIUS = 6371000.0;
 }
+
+// Kalman filter implementation moved to separate module: kalman_filter.{h,cpp}
+
+// ==================== Fusion Service Implementation ====================
 
 FusionServiceImpl::FusionServiceImpl()
 {
-    // Define static radar position
-    radar_position_.set_lat(RADAR_LAT);
-    radar_position_.set_lon(RADAR_LON);
-    radar_position_.set_alt(RADAR_ALT);
+    running_ = true;
+    std::cout << "[FUSION] Starting Background Fusion Thread (Dynamic origin)..." << std::endl;
+    fusion_thread_ = std::thread(&FusionServiceImpl::FusionLoop, this);
 }
 
-// Haversine formula (sufficient for simulation though not exact)
-common::GeoPoint FusionServiceImpl::PolarToGeo(double range_m, double bearing_deg, const common::GeoPoint &origin)
+FusionServiceImpl::~FusionServiceImpl()
 {
-    common::GeoPoint target;
-
-    // Convert degrees to radians
-    double bearing_rad = bearing_deg * M_PI / 180.0;
-    double lat_rad = origin.lat() * M_PI / 180.0;
-    double lon_rad = origin.lon() * M_PI / 180.0;
-
-    // Calculate new latitude
-    double new_lat_rad = std::asin(std::sin(lat_rad) * std::cos(range_m / EARTH_RADIUS) +
-                                   std::cos(lat_rad) * std::sin(range_m / EARTH_RADIUS) * std::cos(bearing_rad));
-
-    // Calculate new longitude
-    double new_lon_rad = lon_rad + std::atan2(std::sin(bearing_rad) * std::sin(range_m / EARTH_RADIUS) * std::cos(lat_rad),
-                                              std::cos(range_m / EARTH_RADIUS) - std::sin(lat_rad) * std::sin(new_lat_rad));
-
-    target.set_lat(new_lat_rad * 180.0 / M_PI);
-    target.set_lon(new_lon_rad * 180.0 / M_PI);
-    // Altitude is ignored here or could be calculated from radar elevation.
-    target.set_alt(origin.alt());
-
-    return target;
+    running_ = false;
+    if (fusion_thread_.joinable())
+        fusion_thread_.join();
 }
-
-fusion::FusedTrack FusionServiceImpl::Fuse(uint32_t track_id)
-{
-    // Assumes this method is invoked while mtx_ is locked by StreamXxx methods.
-
-    if (track_buffer_.find(track_id) == track_buffer_.end())
-    {
-        fusion::FusedTrack empty_track;
-        empty_track.set_track_id(0);
-        return empty_track;
-    }
-
-    const auto &t = track_buffer_[track_id];
-    fusion::FusedTrack fused;
-    fused.set_track_id(track_id);
-
-    double lat_sum = 0, lon_sum = 0, alt_sum = 0;
-    int count = 0;
-    double total_confidence = 0.0;
-
-    // 1. UAV data (GeoPoint already available)
-    if (t.has_uav)
-    {
-        lat_sum += t.uav.position().lat();
-        lon_sum += t.uav.position().lon();
-        alt_sum += t.uav.position().alt();
-        count++;
-        total_confidence += 0.4;
-    }
-
-    // 2. Radar data (requires polar-to-GeoPoint conversion)
-    if (t.has_radar)
-    {
-        // Range ve Bearing kullanarak GeoPoint hesapla
-        common::GeoPoint estimated_pos = PolarToGeo(t.radar.range(), t.radar.bearing(), radar_position_);
-
-        lat_sum += estimated_pos.lat();
-        lon_sum += estimated_pos.lon();
-        alt_sum += estimated_pos.alt();
-        count++;
-        total_confidence += 0.4;
-    }
-
-    // 3. SIGINT data (ignored for position for simplicity; only confidence is increased)
-    // Gerçekte: Birden fazla SIGINT hit'i ile triangülasyon yapılmalıdır.
-    // In reality: triangulation from multiple SIGINT hits would be required.
-    if (t.has_sigint)
-    {
-        // Current TrackData does not contain enough information to position SIGINT.
-        // We only indicate presence and increase confidence.
-        total_confidence += 0.2;
-    }
-
-    if (count > 0)
-    {
-        // Position averaging
-        fused.mutable_position()->set_lat(lat_sum / count);
-        fused.mutable_position()->set_lon(lon_sum / count);
-        fused.mutable_position()->set_alt(alt_sum / count);
-
-        // Confidence (capped to 1.0)
-        fused.set_confidence(std::min(1.0, total_confidence));
-
-        // Age field removed from proto; skip setting age here. Clients can
-        // compute age from timestamps in headers if needed.
-    }
-    else
-    {
-        // No data -> invalid track
-        fused.set_track_id(0);
-    }
-
-    // Save result into persistent memory (under mtx_ protection)
-    if (fused.track_id() != 0)
-    {
-        fused_tracks_[track_id] = fused;
-    }
-
-    return fused;
-}
-
-// ----------------------------------------------------------------------
-// SENSOR STREAM IMPLEMENTATIONS
-// ----------------------------------------------------------------------
 
 grpc::Status FusionServiceImpl::StreamUAV(
-    grpc::ServerContext *context,
-    grpc::ServerReader<sensors::UAVTelemetry> *reader,
-    fusion::FusionAck *ack)
+    grpc::ServerContext *context, grpc::ServerReader<sensors::UAVTelemetry> *reader, fusion::FusionAck *ack)
 {
-
     sensors::UAVTelemetry msg;
-    uint32_t track_id = 0; // Should obtain ID from UAV
-
     while (reader->Read(&msg))
     {
-        // Assumption: UAV telemetry ID should be convertible to uint32 or be uint32 directly.
-        // If the proto uses a string, hash it here.
-        // Simplification: track_id = 1 // OR use std::stoi(msg.uav_id())
-
-        track_id = 1; // For simplicity assign all UAVs to the same track.
-
-        std::lock_guard<std::mutex> lock(mtx_); // LOCK
-        auto &t = track_buffer_[track_id];
-
-        // Update
-        t.has_uav = true;
-        t.uav = msg;
-
-        // Record timestamp
-        t.last_update_ms = msg.header().timestamp();
-
-        // Run fusion
-        Fuse(track_id);
+        std::lock_guard<std::mutex> lock(queue_mtx_);
+        queue_.push_back({(uint64_t)msg.header().timestamp(),
+                          "UAV",
+                          msg.uav_id(),
+                          msg.position().lat(), msg.position().lon(), msg.position().alt(),
+                          msg.uav_id()});
     }
-
-    // Acknowledgement (sent after the loop finishes)
-    ack->set_ok(true);
-    std::ostringstream oss;
-    oss << "UAV stream processed " << track_id << " successfully.";
-    ack->set_message(oss.str());
-
     return grpc::Status::OK;
 }
 
 grpc::Status FusionServiceImpl::StreamRadar(
-    grpc::ServerContext *context,
-    grpc::ServerReader<sensors::RadarDetection> *reader,
-    fusion::FusionAck *ack)
+    grpc::ServerContext *context, grpc::ServerReader<sensors::RadarDetection> *reader, fusion::FusionAck *ack)
 {
-
     sensors::RadarDetection msg;
-    uint32_t track_id = 0;
-
     while (reader->Read(&msg))
     {
-        // Assumption: Radar track_id should be convertible to uint32_t.
-        track_id = 2; // Basitlik için tüm Radar izlerini aynı track'e atıyoruz.
-
-        std::lock_guard<std::mutex> lock(mtx_); // LOCK
-        auto &t = track_buffer_[track_id];
-
-        // Update
-        t.has_radar = true;
-        t.radar = msg;
-
-        // Record timestamp
-        t.last_update_ms = msg.header().timestamp();
-
-        // Run fusion
-        Fuse(track_id);
+        std::lock_guard<std::mutex> lock(queue_mtx_);
+        // The radar client already calculates the target GPS coordinates;
+        // use them directly. If the client provided per-message origin
+        // instead, that should be stored per-sensor (not done here).
+        queue_.push_back({(uint64_t)msg.header().timestamp(),
+                          "RADAR",
+                          msg.header().sensor_id(),
+                          msg.radar_lat(),
+                          msg.radar_lon(),
+                          msg.radar_alt(),
+                          ""});
     }
-
-    // Acknowledgement (sent after the loop finishes)
-    ack->set_ok(true);
-    std::ostringstream oss;
-    oss << "Radar stream processed " << track_id << " successfully.";
-    ack->set_message(oss.str());
-
     return grpc::Status::OK;
 }
 
 grpc::Status FusionServiceImpl::StreamSigint(
-    grpc::ServerContext *context,
-    grpc::ServerReader<sensors::SigintHit> *reader,
-    fusion::FusionAck *ack)
+    grpc::ServerContext *context, grpc::ServerReader<sensors::SigintHit> *reader, fusion::FusionAck *ack)
 {
-
     sensors::SigintHit msg;
-    uint32_t track_id = 0;
-
     while (reader->Read(&msg))
     {
-        // SIGINT logic is more complex. For simplicity:
-        track_id = 3; // Tüm SIGINT'leri aynı track'e atıyoruz.
-
-        std::lock_guard<std::mutex> lock(mtx_); // LOCK
-        auto &t = track_buffer_[track_id];
-
-        // Update
-        t.has_sigint = true;
-        t.sigint = msg;
-
-        // Record timestamp
-        t.last_update_ms = msg.header().timestamp();
-
-        // Run fusion
-        Fuse(track_id);
+        std::lock_guard<std::mutex> lock(queue_mtx_);
+        queue_.push_back({(uint64_t)msg.header().timestamp(), "SIGINT", msg.header().sensor_id(), 0.0, 0.0, 0.0, ""});
     }
-
-    // Acknowledgement (sent after the loop finishes)
-    ack->set_ok(true);
-    std::ostringstream oss;
-    oss << "SIGINT stream processed " << track_id << " successfully.";
-    ack->set_message(oss.str());
-
     return grpc::Status::OK;
+}
+
+void FusionServiceImpl::LogToCSV(const std::string &path, const std::string &header, const std::string &line)
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    bool exists = std::filesystem::exists(path);
+    std::ofstream ofs(path, std::ios::app);
+    if (ofs.is_open())
+    {
+        if (!exists)
+            ofs << header << "\n";
+        ofs << line << "\n";
+        ofs.close();
+    }
+}
+
+void FusionServiceImpl::FusionLoop()
+{
+    uint64_t last_fusion_time = 0;
+    double raw_uav_lat = 0.0, raw_uav_lon = 0.0, raw_uav_alt = 0.0;
+
+    while (running_)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        std::deque<SensorMeasurement> batch;
+        {
+            std::lock_guard<std::mutex> lock(queue_mtx_);
+            if (queue_.empty())
+                continue;
+            batch.swap(queue_);
+        }
+
+        uint32_t track_id = 1;
+        uint64_t current_batch_ts = batch.back().timestamp;
+        std::vector<std::string> active_sources;
+
+        KalmanFilter &kf = kf_map_[track_id];
+        double dt = (last_fusion_time == 0) ? 0.1 : (current_batch_ts - last_fusion_time) / 1000.0;
+        if (dt <= 0 || dt > 1.0)
+            dt = 0.1;
+
+        kf.Predict(dt);
+        last_fusion_time = current_batch_ts;
+
+        for (const auto &m : batch)
+        {
+            if (m.sensor_type == "UAV")
+            {
+                raw_uav_lat = m.lat;
+                raw_uav_lon = m.lon;
+                raw_uav_alt = m.alt;
+                continue;
+            }
+
+            if (std::abs(m.lat) < 1.0)
+                continue;
+
+            // Weight according to sigma (R matrix multiplier)
+            double base_R = (m.sensor_id == "RADAR-1") ? 400.0 : 1225.0;
+
+            double pred_lat, pred_lon, v_lat, v_lon;
+            kf.GetState(pred_lat, pred_lon, v_lat, v_lon);
+            double innovation = CalculateHaversine(m.lat, m.lon, pred_lat, pred_lon);
+
+            // Gating: filter/penalize very large deviations
+            double adaptive_R = base_R;
+            if (innovation > 1000.0)
+            {
+                adaptive_R = base_R * std::pow(innovation / 500.0, 2);
+            }
+
+            kf.Update(m.lat, m.lon, adaptive_R);
+
+            if (std::find(active_sources.begin(), active_sources.end(), m.sensor_id) == active_sources.end())
+                active_sources.push_back(m.sensor_id);
+        }
+
+        double f_lat, f_lon, f_v_lat, f_v_lon;
+        kf.GetState(f_lat, f_lon, f_v_lat, f_v_lon);
+
+        double error_m = (raw_uav_lat != 0.0) ? CalculateHaversine(f_lat, f_lon, raw_uav_lat, raw_uav_lon) : 0.0;
+
+        // Send to monitor
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            fusion::FusedTrack &ft = fused_tracks_[track_id];
+            ft.set_track_id(track_id);
+            ft.mutable_position()->set_lat(f_lat);
+            ft.mutable_position()->set_lon(f_lon);
+            ft.mutable_position()->set_alt(raw_uav_alt != 0 ? raw_uav_alt : 1250.0);
+            ft.set_confidence(0.90);
+            ft.clear_source_sensors();
+            for (const auto &s : active_sources)
+                ft.add_source_sensors(s);
+        }
+
+        // CSV Log
+        std::stringstream ss;
+        ss << current_batch_ts << "," << std::fixed << std::setprecision(6) << f_lat << "," << f_lon << ","
+           << raw_uav_lat << "," << raw_uav_lon << "," << std::fixed << std::setprecision(2) << error_m << ",";
+        for (size_t i = 0; i < active_sources.size(); ++i)
+            ss << active_sources[i] << (i < active_sources.size() - 1 ? ";" : "");
+
+        LogToCSV("/workspace/shared/logs/comparison_report.csv", "ts,f_lat,f_lon,uav_lat,uav_lon,error_m,sources", ss.str());
+    }
+}
+
+common::GeoPoint FusionServiceImpl::PolarToGeo(double range, double bearing, const common::GeoPoint &origin)
+{
+    const double R = 6371000.0;
+    double ad = range / R;
+    double brng = bearing * M_PI / 180.0;
+    double lat1 = origin.lat() * M_PI / 180.0;
+    double lon1 = origin.lon() * M_PI / 180.0;
+
+    double lat2 = asin(sin(lat1) * cos(ad) + cos(lat1) * sin(ad) * cos(brng));
+    double lon2 = lon1 + atan2(sin(brng) * sin(ad) * cos(lat1), cos(ad) - sin(lat1) * sin(lat2));
+
+    common::GeoPoint target;
+    target.set_lat(lat2 * 180.0 / M_PI);
+    target.set_lon(lon2 * 180.0 / M_PI);
+    return target;
+}
+
+double FusionServiceImpl::CalculateHaversine(double lat1, double lon1, double lat2, double lon2)
+{
+    double dLat = (lat2 - lat1) * M_PI / 180.0;
+    double dLon = (lon2 - lon1) * M_PI / 180.0;
+    double a = pow(sin(dLat / 2), 2) + pow(sin(dLon / 2), 2) * cos(lat1 * M_PI / 180.0) * cos(lat2 * M_PI / 180.0);
+    return EARTH_RADIUS * 2 * asin(sqrt(a));
 }

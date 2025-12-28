@@ -44,6 +44,9 @@ RUN git clone --depth 1 https://github.com/abseil/abseil-cpp.git /tmp/abseil \
     && cd / \
     && rm -rf /tmp/abseil
 
+# install opencv
+RUN apt-get update && apt-get install -y libopencv-dev
+
 # install gRPC
 RUN git clone --recursive -b v1.48.0 https://github.com/grpc/grpc /tmp/grpc \
     && mkdir -p /tmp/grpc/cmake/build \
@@ -58,8 +61,12 @@ RUN git clone --recursive -b v1.48.0 https://github.com/grpc/grpc /tmp/grpc \
 
 COPY . /workspace/
 
-RUN echo "Compiling the project..." \
+RUN echo "Compiling the project (Release)..." \
     && mkdir -p build \
     && cd build \
-    && cmake .. \
-    && cmake --build . -j$(nproc)
+    && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local \
+    || { echo 'CMake configuration failed'; exit 1; } \
+    && cmake --build . -- -j$(nproc) \
+    || { echo 'Build failed'; exit 1; } \
+    && echo "Build completed. Listing built service binaries:" \
+    && ls -l ./services

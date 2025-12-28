@@ -7,9 +7,8 @@ FusionMonitorServiceImpl::FusionMonitorServiceImpl(
     std::unordered_map<uint32_t, fusion::FusedTrack>& tracks)
     : mtx_(track_mtx), fused_tracks_(tracks)
 {}
-
 // GetFusedTracks RPC implementation
-// Returns the current list of tracks to the client.
+// Returns the current list of fused tracks to the client.
 grpc::Status FusionMonitorServiceImpl::SubscribeFusedTracks(
     grpc::ServerContext* context,
     const fusion::MonitorRequest* request,
