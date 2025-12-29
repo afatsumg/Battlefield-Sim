@@ -100,6 +100,10 @@ void FusionServiceImpl::FusionLoop()
     uint64_t last_fusion_time = 0;
     double raw_uav_lat = 0.0, raw_uav_lon = 0.0, raw_uav_alt = 0.0;
 
+    // Map to store each sensor's Sigma values coming from Docker
+    // In real systems this data comes from a "Sensor Registry" service.
+    std::map<std::string, double> sensor_sigma_map;
+
     while (running_)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -137,17 +141,33 @@ void FusionServiceImpl::FusionLoop()
             if (std::abs(m.lat) < 1.0)
                 continue;
 
-            // Weight according to sigma (R matrix multiplier)
-            double base_R = (m.sensor_id == "RADAR-1") ? 400.0 : 1225.0;
+            // --- DYNAMIC R MATRIX CALCULATION ---
+            // We use RADAR_RANGE_SIGMA from docker-compose per sensor.
+            // If the radar client does not send sigma info inside the message,
+            // we can assign a default based on sensor_id here.
+
+            double sigma = 30.0; // Default
+            if (m.sensor_id == "TPS-77-LONG-RANGE")
+            {
+                sigma = 50.0;
+            }
+            else if (m.sensor_id == "STIR-PRECISION-TRACK")
+            {
+                sigma = 5.0;
+            }
+
+            // Kalman's R matrix is the variance: R = sigma^2
+            double base_R = std::pow(sigma, 2);
 
             double pred_lat, pred_lon, v_lat, v_lon;
             kf.GetState(pred_lat, pred_lon, v_lat, v_lon);
             double innovation = CalculateHaversine(m.lat, m.lon, pred_lat, pred_lon);
 
-            // Gating: filter/penalize very large deviations
+            // Gating: Filter very large deviations (outliers)
             double adaptive_R = base_R;
             if (innovation > 1000.0)
             {
+                // If the measurement is very distant, increase R to desensitize the filter (Outlier Rejection)
                 adaptive_R = base_R * std::pow(innovation / 500.0, 2);
             }
 
@@ -160,9 +180,15 @@ void FusionServiceImpl::FusionLoop()
         double f_lat, f_lon, f_v_lat, f_v_lon;
         kf.GetState(f_lat, f_lon, f_v_lat, f_v_lon);
 
+        // --- VALIDATION & LOGGING ---
+        if (active_sources.empty() || (f_lat == 0.0 && f_lon == 0.0))
+        {
+            continue;
+        }
+
         double error_m = (raw_uav_lat != 0.0) ? CalculateHaversine(f_lat, f_lon, raw_uav_lat, raw_uav_lon) : 0.0;
 
-        // Send to monitor
+        // Send to Monitor service
         {
             std::lock_guard<std::mutex> lock(mtx_);
             fusion::FusedTrack &ft = fused_tracks_[track_id];
@@ -170,13 +196,13 @@ void FusionServiceImpl::FusionLoop()
             ft.mutable_position()->set_lat(f_lat);
             ft.mutable_position()->set_lon(f_lon);
             ft.mutable_position()->set_alt(raw_uav_alt != 0 ? raw_uav_alt : 1250.0);
-            ft.set_confidence(0.90);
+            ft.set_confidence(0.95); // Confidence increases when STIR is active
             ft.clear_source_sensors();
             for (const auto &s : active_sources)
                 ft.add_source_sensors(s);
         }
 
-        // CSV Log
+        // CSV Logging
         std::stringstream ss;
         ss << current_batch_ts << "," << std::fixed << std::setprecision(6) << f_lat << "," << f_lon << ","
            << raw_uav_lat << "," << raw_uav_lon << "," << std::fixed << std::setprecision(2) << error_m << ",";

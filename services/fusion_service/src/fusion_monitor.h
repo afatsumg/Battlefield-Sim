@@ -22,9 +22,9 @@ public:
     // Note: Additional methods for server-streaming can be added here.
 
 private:
-    // Fusion Service'den gelen paylaşımlı mutex'e referans
+    // Reference to the shared mutex provided by the Fusion Service
     std::mutex& mtx_; 
-    
-    // Fusion Service'den gelen paylaşılan track listesine referans
+
+    // Reference to the shared track list provided by the Fusion Service
     std::unordered_map<uint32_t, fusion::FusedTrack>& fused_tracks_;
 };

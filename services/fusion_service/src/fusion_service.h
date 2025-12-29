@@ -49,7 +49,7 @@ public:
     grpc::Status StreamSigint(grpc::ServerContext *context, grpc::ServerReader<sensors::SigintHit> *reader, fusion::FusionAck *ack) override;
 
 private:
-    // Arka plan thread'i ve kuyruk yönetimi
+    // Background thread and queue management
     std::thread fusion_thread_;
     bool running_ = true;
     std::deque<SensorMeasurement> queue_;
@@ -57,7 +57,7 @@ private:
 
     void FusionLoop();
 
-    // Kalman ve Yardımcı Veriler
+    // Kalman and auxiliary data
     std::unordered_map<uint32_t, KalmanFilter> kf_map_;
     std::map<uint64_t, common::GeoPoint> ground_truth_buffer_;
     std::unordered_map<std::string, uint32_t> ext_to_int_id_;

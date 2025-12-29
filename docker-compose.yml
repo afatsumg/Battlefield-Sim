@@ -53,11 +53,13 @@ services:
     environment:
       - FUSION_ADDR=fusion_service:6000
       - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
-      - RADAR_ID=RADAR-1
-      - RADAR_LAT=39.900
-      - RADAR_LON=32.800
-      - RADAR_RANGE_SIGMA=20.0
-      - RADAR_BEARING_SIGMA=0.8
+      - RADAR_ID=TPS-77-LONG-RANGE
+      - RADAR_LAT=39.750
+      - RADAR_LON=32.700
+      - RADAR_RANGE_SIGMA=50.0     
+      - RADAR_BEARING_SIGMA=1.5     
+      - RADAR_RCS_ACTIVE=true
+      - RADAR_SENSITIVITY=1e-20     # Very sensitive; can detect targets at long range
     command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
     depends_on:
       - fusion_service
@@ -73,27 +75,29 @@ services:
     environment:
       - FUSION_ADDR=fusion_service:6000
       - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
-      - RADAR_ID=RADAR-2
-      - RADAR_LAT=39.905
-      - RADAR_LON=32.931
-      - RADAR_RANGE_SIGMA=35.0
-      - RADAR_BEARING_SIGMA=1.2
+      - RADAR_ID=STIR-PRECISION-TRACK
+      - RADAR_LAT=39.940           
+      - RADAR_LON=32.855
+      - RADAR_RANGE_SIGMA=5.0       # Reasonably precise range measurement
+      - RADAR_BEARING_SIGMA=0.1     # Incredibly precise bearing measurement
+      - RADAR_RCS_ACTIVE=true
+      - RADAR_SENSITIVITY=1e-13     # Less sensitive; can only detect larger targets at shorter range
     command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
     depends_on:
       - fusion_service
     restart: on-failure
 
-  sensor_sigint:
-    image: battlefield-sim:fusion
-    build:
-      context: .
-      dockerfile: docker/dev.Dockerfile
-    volumes:
-      - ./logs:/workspace/shared
-    environment:
-      - FUSION_ADDR=fusion_service:6000
-      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
-    command: bash -lc "cd /workspace/build && ./services/sensor_sigint/sensor_sigint"
-    depends_on:
-      - fusion_service
-    restart: on-failure
+  # sensor_sigint:
+  #   image: battlefield-sim:fusion
+  #   build:
+  #     context: .
+  #     dockerfile: docker/dev.Dockerfile
+  #   volumes:
+  #     - ./logs:/workspace/shared
+  #   environment:
+  #     - FUSION_ADDR=fusion_service:6000
+  #     - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
+  #   command: bash -lc "cd /workspace/build && ./services/sensor_sigint/sensor_sigint"
+  #   depends_on:
+  #     - fusion_service
+  #   restart: on-failure

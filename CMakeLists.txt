@@ -11,10 +11,10 @@ set(PROTO_DIR ${CMAKE_SOURCE_DIR}/proto)
 set(GEN_DIR ${CMAKE_SOURCE_DIR}/generated)
 file(MAKE_DIRECTORY ${GEN_DIR})
 
-# Tüm proto dosyalarını bul
+# Find all proto files
 file(GLOB_RECURSE PROTO_FILES ${PROTO_DIR}/*.proto)
 
-# Önceden üretilmiş dosyalar var mı kontrol et
+# Check if pre-generated files exist
 file(GLOB_RECURSE PROTO_GENERATED_SRCS
     ${GEN_DIR}/*.pb.cc
     ${GEN_DIR}/*.grpc.pb.cc
@@ -129,7 +129,7 @@ endif()
 
 target_link_libraries(project_protos PUBLIC gRPC::grpc protobuf::libprotobuf)
 
-# Alt servisler
+# Add subdirectories for other services
 add_subdirectory(services/fusion_service)
 add_subdirectory(services/sensor_uav)
 add_subdirectory(services/sensor_radar)

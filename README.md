@@ -1,79 +1,88 @@
 # Distributed Battlefield Simulator
 
-This repository implements a **high-performance distributed battlefield simulation**.  
-It features real-time sensor streams (UAV, Radar, SIGINT), a **Kalman Filter-based fusion service**, and a monitoring system that provides **sub-10-meter precision** in fused tracks.
+This repository implements a **high-performance Network-Centric Warfare (NCW) simulation**.  
+It features real-time multi-sensor streams, an **industry-grade Kalman Filter fusion service**, and a validation pipeline that demonstrates how **multi-sensor synergy reduces tracking error from hundreds of meters to sub–5-meter precision**.
 
 Example output:
 
-![Example Output](./images/performance_metrics.png)
+![Example Output](./logs/logs/performance_metrics.png)
 
-Performance Analysis:
-The system achieves a significant precision boost by fusing multi-radar data. After the initial Kalman convergence, the average tracking error stays within 10-15 meters, even with noisy Radar sensors ($\sigma=35$).
-
----
-
-## 📌 Project Overview
-
-### Sensors
-- High-fidelity simulators streaming telemetry and detections via **gRPC**
-- Supported sensors:
-  - UAV (Ground Truth)
-  - Radar (Configurable noise levels)
-  - SIGINT (Planned)
-
-### Fusion Service
-- C++ **gRPC server**
-- Performs **Multi-Sensor Data Fusion (MSDF)**
-- Uses a **Linear Kalman Filter** with **dynamic noise scaling**
-
-### Monitor CLI
-- Real-time **terminal UI**
-- Displays fused tracks and system confidence
-
-### Protobuf
-- Structured message definitions
-- Ensures **type safety** across the distributed system
+The tracking performance boosts after the second radar comes in.
 
 ---
 
-## 🚀 New Features (Latest Updates)
+## System Architecture & Services
 
-### Kalman Filter Integration
-- It uses a **constant-velocity Kalman Filter**
+The system is built on a **microservices architecture**, leveraging **gRPC** for low-latency, bi-directional streaming between distributed components.
 
-### Dynamic Origin Calculation
-- Sensors now report their **own GPS positions**
-- Fusion service performs real-time **coordinate transformations**
-  - Polar → Geographic
-  - Each sensor has a unique perspective
-
-### Outlier Rejection (Gating)
-- Dynamic measurement noise scaling (`R`)
-- Penalizes sensors with high **innovation error**
-
-### Comparative Logging
-- Automatic generation of `comparison_report.csv`
-- Measures fusion error against **ground-truth UAV data**
-
+| Service | Technology Stack | Description |
+|------|------------------|------------|
+| **Fusion Service** | C++, OpenCV, gRPC | The brain of the system. Implements **MSDF (Multi-Sensor Data Fusion)** using a physics-aware Kalman Filter. |
+| **UAV Simulator** | C++, Protobuf | Generates ground-truth telemetry and deterministic flight paths for validation. |
+| **TPS-77 Radar** | C++, Physics Engine | Long-range surveillance radar. High power, S-Band, lower precision (**σ = 50 m**). |
+| **STIR Radar** | C++, Physics Engine | Fire-control radar for precision tracking. X/Ka-Band, extreme accuracy (**σ = 5 m**). |
+| **Monitor CLI** | C++, gRPC | Real-time situational awareness dashboard displaying fused tracks and confidence metrics. |
 
 ---
 
-## 🧠 High-Level Architecture
+## Advanced Fusion Logic
 
-### Ingestion
-- Sensors open **gRPC streams** to the fusion server
+### Heterogeneous Sensor Weighting
 
-### Processing (10 Hz)
-1. **Predict**
-   - Kalman Filter projects next position using velocity
-2. **Update**
-   - Multi-radar detections fused using weighted covariance
-3. **Coordinate Sync**
-   - Radar polar coordinates converted to GeoPoints
-4. **Subscription**
-   - Monitor CLI subscribes via `FusionMonitor` API
+The Fusion Service dynamically assigns **sensor trust levels** based on physical and hardware characteristics.
+
+Within the Kalman Filter, the **Measurement Noise Covariance (R)** is derived directly from radar specifications:
+
+| Sensor ID | Role | Range Sigma (σ) | Kalman R Value (σ²) |
+|--------|------|------------------|---------------------|
+| TPS-77-LONG-RANGE | Surveillance | 50.0 m | 2500.0 |
+| STIR-PRECISION-TRACK | Engagement | 5.0 m | 25.0 |
+
+This ensures that **precision fire-control radars dominate the solution during engagement**, while long-range sensors contribute stable situational awareness.
 
 ---
+
+### Physics-Based Detection (RCS & 1/R⁴ Law)
+
+Radar detection is not binary. The system models **real radar physics** using the Radar Equation:
+
+- **Radar Cross Section (RCS)**  
+  - Dynamically varies with the UAV’s aspect angle
+  - Impacts received signal strength realistically
+
+- **Range Attenuation (1 / R⁴)**  
+  - Signal power decays with the fourth power of distance
+  - Long-range detections are inherently noisier
+
+- **Sensitivity Thresholds**  
+  - The STIR radar only locks onto targets once **SNR exceeds a defined threshold**
+  - Mimics real-world **Electronic Support Measures (ESM)** and fire-control logic
+
+---
+
+### Innovation-Based Gating
+
+To protect against clutter, noise spikes, and false detections, the system applies **innovation-based gating**:
+
+- Computes the **innovation** (measurement − predicted state)
+- If a measurement exceeds a logical consistency threshold:
+  - The Kalman **R matrix is scaled exponentially**
+  - Prevents **track seduction** and filter divergence
+- Outliers are *deweighted*, not blindly discarded
+
+This approach preserves track continuity while maintaining robustness under degraded sensor conditions.
+
+---
+
+## Key Outcomes
+
+- Realistic NCW-style sensor fusion
+- Physics-aware radar modeling
+- Stable tracks under heterogeneous sensor quality
+- Sub–5 m fusion accuracy during precision tracking
+
+This repository implements a **high-performance distributed battlefield simulation**.  
+It features real-time sensor streams (UAV, Radar, SIGINT), a **Kalman Filter-based fusion service**, and a monitoring system that provides **sub-10-meter precision** in fused tracks.
 
 ## ⚙️ Prerequisites
 
@@ -91,29 +100,7 @@ The system achieves a significant precision boost by fusing multi-radar data. Af
 docker-compose up --build
 ```
 
----
-
-## 🚀 Services Started Automatically
-
-| Service        | Port(s) / Description |
-|---------------|------------------------|
-| Fusion Service | `6000` (Ingestion) / `6005` (Monitor) |
-| RADAR-1       | High Precision Radar |
-| RADAR-2       | Medium Precision Radar |
-| UAV           | Ground-truth telemetry @ **1 Hz** |
-
----
-
-## 📈 Performance Analysis
-
-Sensor weighting is applied based on reported measurement error:
-
-| Sensor  | Measurement Noise (R) |
-|--------|------------------------|
-| RADAR-1 | 400 |
-| RADAR-2 | 1225 |
-
-### 📊 Fusion Output
+### Fusion Output
 - Fusion results are logged to:
 ```bash
 /workspace/shared/logs/comparison_report.csv

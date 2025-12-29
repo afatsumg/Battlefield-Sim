@@ -6,10 +6,12 @@
 #include <random>
 #include <fstream>
 #include <iomanip>
+#include <string>
 
 // Helper: compute target GPS from radar origin, range and bearing
-std::pair<double, double> calculate_target_gps(double lat1, double lon1, double range, double bearing) {
-    const double R_EARTH = 6371000.0; // Earth radius (meters)
+std::pair<double, double> calculate_target_gps(double lat1, double lon1, double range, double bearing)
+{
+    const double R_EARTH = 6371000.0;
     double ad = range / R_EARTH;
     double brng = bearing * M_PI / 180.0;
     double phi1 = lat1 * M_PI / 180.0;
@@ -21,41 +23,55 @@ std::pair<double, double> calculate_target_gps(double lat1, double lon1, double 
     return {phi2 * 180.0 / M_PI, lam2 * 180.0 / M_PI};
 }
 
-int main() {
-    // 1. Connection settings
+// Calculate Dynamic RCS based on Aspect Angle
+double calculate_aspect_rcs(double uav_lat, double uav_lon, double uav_heading, double r_lat, double r_lon)
+{
+    double phi1 = r_lat * M_PI / 180.0;
+    double phi2 = uav_lat * M_PI / 180.0;
+    double dLam = (uav_lon - r_lon) * M_PI / 180.0;
+    double y = std::sin(dLam) * std::cos(phi2);
+    double x = std::cos(phi1) * std::sin(phi2) - std::sin(phi1) * std::cos(phi2) * std::cos(dLam);
+    double bearing_to_uav = std::atan2(y, x) * 180.0 / M_PI;
+    if (bearing_to_uav < 0) bearing_to_uav += 360.0;
+
+    // Aspect Angle: Difference between where UAV points and where Radar is
+    double alpha_rad = std::abs(uav_heading - bearing_to_uav) * M_PI / 180.0;
+
+    // Small UAV RCS Model: Frontal (0.1 m2) vs Side (2.0 m2)
+    double rcs_min = 0.1;
+    double rcs_max = 2.0;
+    return rcs_min * std::pow(std::cos(alpha_rad), 2) + rcs_max * std::pow(std::sin(alpha_rad), 2);
+}
+
+int main()
+{
+    // --- Environment Config ---
     const char *env_addr = std::getenv("FUSION_ADDR");
     std::string fusion_target = env_addr ? env_addr : "fusion_service:6000";
+    
+    const char *env_rcs_active = std::getenv("RADAR_RCS_ACTIVE");
+    bool enable_dynamic_rcs = (env_rcs_active && std::string(env_rcs_active) == "true");
+
+    const char *env_sensitivity = std::getenv("RADAR_SENSITIVITY");
+    double radar_sensitivity = env_sensitivity ? std::stod(env_sensitivity) : 1e-12;
+
+    const char *env_id = std::getenv("RADAR_ID");
+    std::string radar_id = env_id ? env_id : "RADAR-X";
+
+    // --- Init ---
     auto channel = grpc::CreateChannel(fusion_target, grpc::InsecureChannelCredentials());
     RadarClient client(channel);
 
-    // 2. Sensor position (provided by docker-compose)
-    const char *env_lat = std::getenv("RADAR_LAT");
-    const char *env_lon = std::getenv("RADAR_LON");
-    const char *env_alt = std::getenv("RADAR_ALT");
-    double radar_lat = env_lat ? atof(env_lat) : 39.9;
-    double radar_lon = env_lon ? atof(env_lon) : 32.8;
-    double radar_alt = env_alt ? atof(env_alt) : 150.0;
+    double radar_lat = std::getenv("RADAR_LAT") ? std::stod(std::getenv("RADAR_LAT")) : 39.9;
+    double radar_lon = std::getenv("RADAR_LON") ? std::stod(std::getenv("RADAR_LON")) : 32.8;
 
-    // 3. Ground truth file path
     const char *env_truth = std::getenv("SHARED_TRUTH_PATH");
     std::string truth_path = env_truth ? env_truth : "/workspace/shared/ground_truth.txt";
 
-    // 4. Noise and bias settings
-    const char *env_r_sigma = std::getenv("RADAR_RANGE_SIGMA");
-    const char *env_b_sigma = std::getenv("RADAR_BEARING_SIGMA");
-    double range_sigma = env_r_sigma ? atof(env_r_sigma) : 30.0;
-    double bearing_sigma = env_b_sigma ? atof(env_b_sigma) : 1.0;
-
-    const char *env_r_bias = std::getenv("RADAR_RANGE_BIAS");
-    const char *env_b_bias = std::getenv("RADAR_BEARING_BIAS");
-    double range_bias = env_r_bias ? atof(env_r_bias) : 0.0;
-    double bearing_bias = env_b_bias ? atof(env_b_bias) : 0.0;
-
     std::mt19937 gen(std::random_device{}());
-    std::normal_distribution<> range_noise(0.0, range_sigma);
-    std::normal_distribution<> bearing_noise(0.0, bearing_sigma);
+    std::normal_distribution<> range_noise(0.0, std::getenv("RADAR_RANGE_SIGMA") ? std::stod(std::getenv("RADAR_RANGE_SIGMA")) : 30.0);
+    std::normal_distribution<> bearing_noise(0.0, std::getenv("RADAR_BEARING_SIGMA") ? std::stod(std::getenv("RADAR_BEARING_SIGMA")) : 1.0);
 
-    // Haversine and bearing lambdas (to compute true distance/angle)
     const double R = 6371000.0;
     auto haversine = [&](double lat1, double lon1, double lat2, double lon2) {
         double dlat = (lat2 - lat1) * M_PI / 180.0;
@@ -73,43 +89,51 @@ int main() {
         return (br < 0) ? br + 360.0 : br;
     };
 
-    std::cout << "[RADAR] Sensor " << (std::getenv("RADAR_ID") ? std::getenv("RADAR_ID") : "UNKNOWN") 
-              << " at Lat:" << radar_lat << " Lon:" << radar_lon << " started." << std::endl;
+    std::cout << "[" << radar_id << "] Booted. RCS_MODEL=" << (enable_dynamic_rcs ? "ON" : "OFF") 
+              << " | SENSITIVITY=" << radar_sensitivity << std::endl;
 
-    while (true) {
-        sensors::RadarDetection msg;
-        auto now = std::chrono::system_clock::now().time_since_epoch();
-        msg.mutable_header()->set_timestamp(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
-        msg.mutable_header()->set_sensor_id(std::getenv("RADAR_ID") ? std::getenv("RADAR_ID") : "RADAR-X");
-
-        double gt_lat = 0, gt_lon = 0, gt_alt = 0;
+    while (true)
+    {
+        double gt_lat, gt_lon, gt_alt, gt_ts, gt_heading;
         std::ifstream ifs(truth_path);
-        if (ifs >> gt_lat >> gt_lon >> gt_alt) {
-            // True distance / bearing
+        
+        if (ifs >> gt_lat >> gt_lon >> gt_alt >> gt_ts >> gt_heading)
+        {
             double true_rng = haversine(radar_lat, radar_lon, gt_lat, gt_lon);
-            double true_brg = bearing_deg(radar_lat, radar_lon, gt_lat, gt_lon);
+            double rcs_to_use = 2.0; 
 
-            // Noisy distance / bearing
-            double noisy_rng = true_rng + range_noise(gen) + range_bias;
-            double noisy_brg = true_brg + bearing_noise(gen) + bearing_bias;
+            if (enable_dynamic_rcs) {
+                rcs_to_use = calculate_aspect_rcs(gt_lat, gt_lon, gt_heading, radar_lat, radar_lon);
+            }
 
-            // IMPORTANT: compute target GPS from noisy measurements
-            auto target_gps = calculate_target_gps(radar_lat, radar_lon, noisy_rng, noisy_brg);
+            // --- Physics Check ---
+            double signal_strength = rcs_to_use / std::pow(true_rng, 4);
 
-            msg.set_track_id("UAV-ALFA");
-            msg.set_range(noisy_rng);
-            msg.set_bearing(noisy_brg);
-            
-            // Set coordinates sent to fusion service
-            msg.set_radar_lat(target_gps.first); 
-            msg.set_radar_lon(target_gps.second);
-            msg.set_radar_alt(gt_alt);
-            msg.set_rcs(5.0);
-            msg.set_velocity(250.0);
+            if (signal_strength > radar_sensitivity)
+            {
+                double noisy_rng = true_rng + range_noise(gen);
+                double noisy_brg = bearing_deg(radar_lat, radar_lon, gt_lat, gt_lon) + bearing_noise(gen);
+                auto target_gps = calculate_target_gps(radar_lat, radar_lon, noisy_rng, noisy_brg);
 
-            if (client.sendDetection(msg)) {
-                std::cout << "[" << msg.header().sensor_id() << "] Target calculated at: " 
-                          << std::fixed << std::setprecision(6) << target_gps.first << ", " << target_gps.second << std::endl;
+                sensors::RadarDetection msg;
+                auto now = std::chrono::system_clock::now().time_since_epoch();
+                msg.mutable_header()->set_timestamp(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+                msg.mutable_header()->set_sensor_id(radar_id);
+                msg.set_track_id("UAV-ALFA");
+                msg.set_range(noisy_rng);
+                msg.set_bearing(noisy_brg);
+                msg.set_radar_lat(target_gps.first);
+                msg.set_radar_lon(target_gps.second);
+                msg.set_radar_alt(gt_alt);
+                msg.set_rcs(rcs_to_use);
+
+                client.sendDetection(msg);
+            }
+            else {
+                // To avoid spamming, we only log signal drops in debug or every few seconds
+                static int drop_count = 0;
+                if (drop_count++ % 50 == 0)
+                   std::cout << "[" << radar_id << "] Target stealthy or out of range. SNR low." << std::endl;
             }
         }
         ifs.close();

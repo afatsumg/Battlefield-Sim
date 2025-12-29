@@ -28,14 +28,18 @@ int main()
     std::uniform_real_distribution<> dist(-0.0001, 0.0001); // unused unless you enable noise
 
     // Shared ground truth file (can be overridden)
-    const char* env_truth = std::getenv("SHARED_TRUTH_PATH");
+    const char *env_truth = std::getenv("SHARED_TRUTH_PATH");
     std::string truth_path = env_truth ? env_truth : std::string("/workspace/shared/ground_truth.txt");
 
     // Ensure shared directory exists for ground truth
-    try {
+    try
+    {
         auto parent = std::filesystem::path(truth_path).parent_path();
-        if (!parent.empty()) std::filesystem::create_directories(parent);
-    } catch (...) {
+        if (!parent.empty())
+            std::filesystem::create_directories(parent);
+    }
+    catch (...)
+    {
         // ignore
     }
 
@@ -50,7 +54,7 @@ int main()
         msg.set_uav_id("UAV-ALFA");
 
         // Position (ground-truth, noise-free)
-        current_lat += 0.0005;                          // Towards north (no noise)
+        current_lat += 0.0005;                           // Towards north (no noise)
         current_lon += std::sin(time_s / 50.0) * 0.0002; // East-West oscillation
         current_alt += std::cos(time_s / 10.0) * 50;     // Small altitude changes
         msg.mutable_position()->set_lat(current_lat);
@@ -69,16 +73,24 @@ int main()
         }
 
         // Publish ground truth to shared file for sensors/fusion comparisons
-        try {
+        try
+        {
             // Ensure shared directory exists (best-effort)
             std::ofstream ofs(truth_path, std::ofstream::trunc);
-            if (ofs) {
+            if (ofs)
+            {
                 ofs << std::fixed << std::setprecision(9)
-                    << msg.position().lat() << " " << msg.position().lon() << " " << msg.position().alt() << " "
-                    << msg.header().timestamp() << "\n";
+                    << msg.position().lat() << " "
+                    << msg.position().lon() << " "
+                    << msg.position().alt() << " "
+                    << msg.header().timestamp() << " "
+                    << msg.heading() << "\n"; // HEADING BURAYA EKLENDİ
                 ofs.close();
             }
-        } catch (...) {}
+        }
+        catch (...)
+        {
+        }
 
         // Send data at 1 Hz
         std::this_thread::sleep_for(std::chrono::seconds(1));
