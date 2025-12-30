@@ -103,6 +103,8 @@ void FusionServiceImpl::FusionLoop()
     // Map to store each sensor's Sigma values coming from Docker
     // In real systems this data comes from a "Sensor Registry" service.
     std::map<std::string, double> sensor_sigma_map;
+    auto now_ts = std::chrono::system_clock::now().time_since_epoch().count();
+    std::string report_path = "/workspace/shared/logs/comparison_report_" + std::to_string(now_ts) + ".csv";
 
     while (running_)
     {
@@ -209,7 +211,7 @@ void FusionServiceImpl::FusionLoop()
         for (size_t i = 0; i < active_sources.size(); ++i)
             ss << active_sources[i] << (i < active_sources.size() - 1 ? ";" : "");
 
-        LogToCSV("/workspace/shared/logs/comparison_report.csv", "ts,f_lat,f_lon,uav_lat,uav_lon,error_m,sources", ss.str());
+        LogToCSV(report_path, "ts,f_lat,f_lon,uav_lat,uav_lon,error_m,sources", ss.str());
     }
 }
 

@@ -38,6 +38,11 @@ services:
     environment:
       - FUSION_ADDR=fusion_service:6000
       - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
+      - UAV_START_LAT=39.920
+      - UAV_START_LON=32.850
+      - UAV_START_ALT=1500.0
+      - UAV_START_HEADING=90.0
+      - UAV_SPEED=120.0
     command: bash -lc "cd /workspace/build && ./services/sensor_uav/sensor_uav"
     depends_on:
       - fusion_service
@@ -86,18 +91,3 @@ services:
     depends_on:
       - fusion_service
     restart: on-failure
-
-  # sensor_sigint:
-  #   image: battlefield-sim:fusion
-  #   build:
-  #     context: .
-  #     dockerfile: docker/dev.Dockerfile
-  #   volumes:
-  #     - ./logs:/workspace/shared
-  #   environment:
-  #     - FUSION_ADDR=fusion_service:6000
-  #     - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
-  #   command: bash -lc "cd /workspace/build && ./services/sensor_sigint/sensor_sigint"
-  #   depends_on:
-  #     - fusion_service
-  #   restart: on-failure

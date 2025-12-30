@@ -2,10 +2,26 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include <cmath> // for sin() function
+#include <cmath>
 #include <random>
 #include <fstream>
 #include <filesystem>
+#include <iomanip>
+
+double get_env_double(const std::string &key, double default_val)
+{
+    const char *val = std::getenv(key.c_str());
+    if (!val)
+        return default_val;
+    try
+    {
+        return std::stod(val);
+    }
+    catch (...)
+    {
+        return default_val;
+    }
+}
 
 int main()
 {
@@ -14,20 +30,17 @@ int main()
     auto channel = grpc::CreateChannel(fusion_target, grpc::InsecureChannelCredentials());
     UAVClient client(channel);
 
-    std::cout << "[UAV] Simulation started (1 Hz)..." << std::endl;
+    // Parameters from docker compose or defaults
+    double current_lat = get_env_double("UAV_START_LAT", 39.920);
+    double current_lon = get_env_double("UAV_START_LON", 32.850);
+    double current_alt = get_env_double("UAV_START_ALT", 1200.0);
+    double current_heading = get_env_double("UAV_START_HEADING", 45.0);
+    double current_speed = get_env_double("UAV_SPEED", 80.0);
 
-    double time_s = 0.0; // Simulation time in seconds
-    double current_lat = 39.920;
-    double current_lon = 32.850;
-    double current_alt = 1200.0;
-    double current_heading = 45.0;
-    double current_speed = 80.0;
+    std::cout << "[UAV] Simulation started with settings:" << std::endl;
+    std::cout << "      Lat: " << current_lat << " Lon: " << current_lon << " Speed: " << current_speed << std::endl;
 
-    // RNG kept for optional use; default ground truth is noise-free
-    std::mt19937 generator(std::random_device{}());
-    std::uniform_real_distribution<> dist(-0.0001, 0.0001); // unused unless you enable noise
-
-    // Shared ground truth file (can be overridden)
+    double time_s = 0.0;
     const char *env_truth = std::getenv("SHARED_TRUTH_PATH");
     std::string truth_path = env_truth ? env_truth : std::string("/workspace/shared/ground_truth.txt");
 
@@ -53,26 +66,27 @@ int main()
             std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
         msg.set_uav_id("UAV-ALFA");
 
-        // Position (ground-truth, noise-free)
-        current_lat += 0.0005;                           // Towards north (no noise)
-        current_lon += std::sin(time_s / 50.0) * 0.0002; // East-West oscillation
-        current_alt += std::cos(time_s / 10.0) * 50;     // Small altitude changes
+        // Movement simulation. Changes in the position based on simple functions.
+        current_lat += 0.0005;
+        current_lon += std::sin(time_s / 50.0) * 0.0002;
+        current_alt += std::cos(time_s / 10.0) * 5.0;
+
         msg.mutable_position()->set_lat(current_lat);
         msg.mutable_position()->set_lon(current_lon);
-        msg.mutable_position()->set_alt(current_alt); // Altitude oscillation
+        msg.mutable_position()->set_alt(current_alt);
 
-        current_heading += std::sin(time_s / 10.0) * 10.0; // Small heading changes
-        msg.set_speed(current_speed);                      // Constant speed
-        msg.set_heading(current_heading);                  // Heading changes by the time
+        current_heading += std::sin(time_s / 10.0) * 2.0;
+        msg.set_speed(current_speed);
+        msg.set_heading(current_heading);
         msg.set_status("Flying");
 
         if (!client.sendTelemetry(msg))
         {
-            std::cerr << "[UAV] Connection lost. Breaking loop." << std::endl;
+            std::cerr << "[UAV] Connection lost." << std::endl;
             break;
         }
 
-        // Publish ground truth to shared file for sensors/fusion comparisons
+        // Ground Truth
         try
         {
             // Ensure shared directory exists (best-effort)
@@ -84,7 +98,7 @@ int main()
                     << msg.position().lon() << " "
                     << msg.position().alt() << " "
                     << msg.header().timestamp() << " "
-                    << msg.heading() << "\n"; // HEADING BURAYA EKLENDİ
+                    << msg.heading() << "\n";
                 ofs.close();
             }
         }
@@ -96,6 +110,5 @@ int main()
         std::this_thread::sleep_for(std::chrono::seconds(1));
         time_s += 1.0;
     }
-
     return 0;
 }
