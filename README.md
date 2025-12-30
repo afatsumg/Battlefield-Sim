@@ -3,12 +3,15 @@
 This repository implements a **high-performance Network-Centric Warfare (NCW) simulation**.  
 It features real-time multi-sensor streams, an **industry-grade Kalman Filter fusion service**, and a validation pipeline that demonstrates how **multi-sensor synergy reduces tracking error from hundreds of meters to sub–5-meter precision**.
 
-Example output:
+Error Comparison:
 
-![Example Output](./logs/logs/performance_metrics.png)
+![Error Comparison](./logs/logs/physics_vs_no_physics_error_comparison.png)
 
-The tracking performance boosts after the second radar comes in.
+Spatial Comparison:
 
+![Spatial Comparison](./logs/logs/spatial_comparison_physics_vs_no_physics.png)
+
+Tracking performance improves in both configurations once the second radar begins contributing measurements, demonstrating the expected benefit of multi-sensor fusion. When RCS and range-based physics are enabled, sensors detect the target later and behave more realistically, leading to higher error metrics due to physically plausible detection limits. Although disabling physics yields lower numerical error, it relies on unrealistically early detections. These results show that higher error in the physics-enabled case reflects increased realism, not degraded fusion performance.
 ---
 
 ## System Architecture & Services
