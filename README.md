@@ -12,6 +12,7 @@ Spatial Comparison:
 ![Spatial Comparison](./logs/logs/spatial_comparison_physics_vs_no_physics.png)
 
 Tracking performance improves in both configurations once the second radar begins contributing measurements, demonstrating the expected benefit of multi-sensor fusion. When RCS and range-based physics are enabled, sensors detect the target later and behave more realistically, leading to higher error metrics due to physically plausible detection limits. Although disabling physics yields lower numerical error, it relies on unrealistically early detections. These results show that higher error in the physics-enabled case reflects increased realism, not degraded fusion performance.
+
 ---
 
 ## System Architecture & Services
