@@ -8,6 +8,17 @@
 #include <iomanip>
 #include <string>
 
+// Helper: Environment değişkenini oku, yoksa default dön
+double get_env_double(const std::string& key, double default_val) {
+    const char* val = std::getenv(key.c_str());
+    if (!val) return default_val;
+    try {
+        return std::stod(val);
+    } catch (...) {
+        return default_val;
+    }
+}
+
 // Helper: compute target GPS from radar origin, range and bearing
 std::pair<double, double> calculate_target_gps(double lat1, double lon1, double range, double bearing)
 {
@@ -52,25 +63,27 @@ int main()
     const char *env_rcs_active = std::getenv("RADAR_RCS_ACTIVE");
     bool enable_dynamic_rcs = (env_rcs_active && std::string(env_rcs_active) == "true");
 
-    const char *env_sensitivity = std::getenv("RADAR_SENSITIVITY");
-    double radar_sensitivity = env_sensitivity ? std::stod(env_sensitivity) : 1e-12;
-
     const char *env_id = std::getenv("RADAR_ID");
     std::string radar_id = env_id ? env_id : "RADAR-X";
+
+    // Get env variables
+    double radar_lat = get_env_double("RADAR_LAT", 39.9);
+    double radar_lon = get_env_double("RADAR_LON", 32.8);
+    double radar_sensitivity = get_env_double("RADAR_SENSITIVITY", 1e-12);
+    double range_sigma_val = get_env_double("RADAR_RANGE_SIGMA", 30.0);
+    double bearing_sigma_val = get_env_double("RADAR_BEARING_SIGMA", 1.0);
+    double sim_duration = get_env_double("SIM_DURATION_SEC", 0.0);
 
     // --- Init ---
     auto channel = grpc::CreateChannel(fusion_target, grpc::InsecureChannelCredentials());
     RadarClient client(channel);
 
-    double radar_lat = std::getenv("RADAR_LAT") ? std::stod(std::getenv("RADAR_LAT")) : 39.9;
-    double radar_lon = std::getenv("RADAR_LON") ? std::stod(std::getenv("RADAR_LON")) : 32.8;
-
     const char *env_truth = std::getenv("SHARED_TRUTH_PATH");
     std::string truth_path = env_truth ? env_truth : "/workspace/shared/ground_truth.txt";
 
     std::mt19937 gen(std::random_device{}());
-    std::normal_distribution<> range_noise(0.0, std::getenv("RADAR_RANGE_SIGMA") ? std::stod(std::getenv("RADAR_RANGE_SIGMA")) : 30.0);
-    std::normal_distribution<> bearing_noise(0.0, std::getenv("RADAR_BEARING_SIGMA") ? std::stod(std::getenv("RADAR_BEARING_SIGMA")) : 1.0);
+    std::normal_distribution<> range_noise(0.0, range_sigma_val);
+    std::normal_distribution<> bearing_noise(0.0, bearing_sigma_val);
 
     const double R = 6371000.0;
     auto haversine = [&](double lat1, double lon1, double lat2, double lon2) {
@@ -92,8 +105,20 @@ int main()
     std::cout << "[" << radar_id << "] Booted. RCS_MODEL=" << (enable_dynamic_rcs ? "ON" : "OFF") 
               << " | SENSITIVITY=" << radar_sensitivity << std::endl;
 
+    auto start_time = std::chrono::steady_clock::now();
+
     while (true)
     {
+        // Zaman kontrolü
+        if (sim_duration > 0) {
+            auto now_clock = std::chrono::steady_clock::now();
+            double elapsed = std::chrono::duration_cast<std::chrono::seconds>(now_clock - start_time).count();
+            if (elapsed >= sim_duration) {
+                std::cout << "[" << radar_id << "] Duration reached. Shutting down." << std::endl;
+                break;
+            }
+        }
+
         double gt_lat, gt_lon, gt_alt, gt_ts, gt_heading;
         std::ifstream ifs(truth_path);
         

@@ -3,6 +3,7 @@
 #include <grpcpp/grpcpp.h>
 #include <iostream>
 #include <thread>
+#include <string> // stoi için eklendi
 
 int main()
 {
@@ -10,6 +11,16 @@ int main()
     std::string monitor_address("0.0.0.0:6005");
 
     FusionServiceImpl fusion_service;
+
+    // --- TIMEOUT KONTROLÜ BURAYA ---
+    const char* env_dur = std::getenv("SIM_DURATION_SEC");
+    int duration = (env_dur && std::string(env_dur) != "") ? std::stoi(env_dur) : 0;
+    
+    if (duration > 0) {
+        std::cout << "[FUSION] Auto-shutdown scheduled in " << duration << " seconds." << std::endl;
+        fusion_service.StartTimeoutThread(duration);
+    }
+    // -------------------------------
 
     // 1. Fusion server setup (for sensors)
     grpc::ServerBuilder fusion_builder;
@@ -27,18 +38,16 @@ int main()
     std::unique_ptr<grpc::Server> monitor_server(monitor_builder.BuildAndStart());
     std::cout << "[FusionMonitor] Running at " << monitor_address << std::endl;
 
-    // Run the monitor in a separate thread so both servers can be awaited.
-    std::thread monitor_thread([&monitor_server]()
-                               {
+    // Run the monitor in a separate thread
+    std::thread monitor_thread([&monitor_server]() {
         std::cout << "Monitor Server Thread Started." << std::endl;
-        monitor_server->Wait(); });
+        monitor_server->Wait(); 
+    });
 
     // Main thread waits on the Fusion server
     fusion_server->Wait();
 
-    // Wait for monitor thread to finish (normally unreachable)
-    if (monitor_thread.joinable())
-    {
+    if (monitor_thread.joinable()) {
         monitor_thread.join();
     }
 

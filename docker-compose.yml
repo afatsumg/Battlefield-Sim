@@ -1,3 +1,12 @@
+# Docker Compose file for Battlefield Simulation Services
+# Defines services: fusion_service, monitor_cli, sensor_uav, sensor_radar_1, sensor_radar_2
+
+# Common environment variables are defined using YAML anchors for reuse.
+x-common-env: &common-env
+  FUSION_ADDR: "fusion_service:6000"
+  SHARED_TRUTH_PATH: "/workspace/shared/ground_truth.txt"
+  SIM_DURATION_SEC: ${SIM_DURATION_SEC:-30} 
+
 services:
   fusion_service:
     build:
@@ -6,10 +15,12 @@ services:
     image: battlefield-sim:fusion
     volumes:
       - ./logs:/workspace/shared
-    command: bash -lc "mkdir -p /workspace/shared/logs && cd /workspace/build && ./services/fusion_service/fusion_service"
+    environment:
+      <<: *common-env
     ports:
       - "6000:6000"
       - "6005:6005"
+    command: bash -lc "mkdir -p /workspace/shared/logs && cd /workspace/build && ./services/fusion_service/fusion_service"
     restart: on-failure
     logging:
       driver: "json-file"
@@ -36,13 +47,11 @@ services:
     volumes:
       - ./logs:/workspace/shared
     environment:
-      - FUSION_ADDR=fusion_service:6000
-      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
-      - UAV_START_LAT=39.920
-      - UAV_START_LON=32.850
-      - UAV_START_ALT=1500.0
-      - UAV_START_HEADING=90.0
-      - UAV_SPEED=120.0
+      <<: *common-env
+      UAV_START_LAT: ${UAV_LAT:-39.920}
+      UAV_START_LON: ${UAV_LON:-32.850}
+      UAV_SPEED: ${UAV_SPEED:-120.0}
+      UAV_START_HEADING: ${UAV_HEADING:-90.0}
     command: bash -lc "cd /workspace/build && ./services/sensor_uav/sensor_uav"
     depends_on:
       - fusion_service
@@ -56,15 +65,14 @@ services:
     volumes:
       - ./logs:/workspace/shared
     environment:
-      - FUSION_ADDR=fusion_service:6000
-      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
-      - RADAR_ID=TPS-77-LONG-RANGE
-      - RADAR_LAT=39.750
-      - RADAR_LON=32.700
-      - RADAR_RANGE_SIGMA=50.0     
-      - RADAR_BEARING_SIGMA=1.5     
-      - RADAR_RCS_ACTIVE=true
-      - RADAR_SENSITIVITY=1e-20     # Very sensitive; can detect targets at long range
+      <<: *common-env
+      RADAR_ID: "TPS-77-LONG-RANGE"
+      RADAR_LAT: 39.750
+      RADAR_LON: 32.700
+      RADAR_RANGE_SIGMA: 50.0
+      RADAR_BEARING_SIGMA: 1.5
+      RADAR_RCS_ACTIVE: "true"
+      RADAR_SENSITIVITY: 1e-20
     command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
     depends_on:
       - fusion_service
@@ -78,15 +86,14 @@ services:
     volumes:
       - ./logs:/workspace/shared
     environment:
-      - FUSION_ADDR=fusion_service:6000
-      - SHARED_TRUTH_PATH=/workspace/shared/ground_truth.txt
-      - RADAR_ID=STIR-PRECISION-TRACK
-      - RADAR_LAT=39.940           
-      - RADAR_LON=32.855
-      - RADAR_RANGE_SIGMA=5.0       # Reasonably precise range measurement
-      - RADAR_BEARING_SIGMA=0.1     # Incredibly precise bearing measurement
-      - RADAR_RCS_ACTIVE=true
-      - RADAR_SENSITIVITY=1e-13     # Less sensitive; can only detect larger targets at shorter range
+      <<: *common-env
+      RADAR_ID: "STIR-PRECISION-TRACK"
+      RADAR_LAT: 39.940
+      RADAR_LON: 32.855
+      RADAR_RANGE_SIGMA: ${RADAR2_SIGMA_R:-5.0}
+      RADAR_BEARING_SIGMA: ${RADAR2_SIGMA_B:-0.1}
+      RADAR_RCS_ACTIVE: "true"
+      RADAR_SENSITIVITY: 1e-13
     command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
     depends_on:
       - fusion_service

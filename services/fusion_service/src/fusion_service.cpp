@@ -239,3 +239,15 @@ double FusionServiceImpl::CalculateHaversine(double lat1, double lon1, double la
     double a = pow(sin(dLat / 2), 2) + pow(sin(dLon / 2), 2) * cos(lat1 * M_PI / 180.0) * cos(lat2 * M_PI / 180.0);
     return EARTH_RADIUS * 2 * asin(sqrt(a));
 }
+
+void FusionServiceImpl::StartTimeoutThread(int duration_sec) {
+    if (duration_sec <= 0) return;
+    
+    std::thread([this, duration_sec]() {
+        std::this_thread::sleep_for(std::chrono::seconds(duration_sec));
+        std::cout << "[FUSION] Simulation duration reached. Shutting down..." << std::endl;
+        this->running_ = false; // Stop the fusion loop
+        std::this_thread::sleep_for(std::chrono::seconds(1)); // Wait a moment for writing final logs
+        std::exit(0); // For stopping the container
+    }).detach();
+}

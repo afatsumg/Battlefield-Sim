@@ -48,6 +48,8 @@ public:
     grpc::Status StreamRadar(grpc::ServerContext *context, grpc::ServerReader<sensors::RadarDetection> *reader, fusion::FusionAck *ack) override;
     grpc::Status StreamSigint(grpc::ServerContext *context, grpc::ServerReader<sensors::SigintHit> *reader, fusion::FusionAck *ack) override;
 
+    void StartTimeoutThread(int duration_sec);
+
 private:
     // Background thread and queue management
     std::thread fusion_thread_;

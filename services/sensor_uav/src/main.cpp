@@ -44,6 +44,7 @@ int main()
     const char *env_truth = std::getenv("SHARED_TRUTH_PATH");
     std::string truth_path = env_truth ? env_truth : std::string("/workspace/shared/ground_truth.txt");
 
+    double max_time = get_env_double("SIM_DURATION_SEC", -1.0);
     // Ensure shared directory exists for ground truth
     try
     {
@@ -58,6 +59,11 @@ int main()
 
     while (true)
     {
+        if (max_time > 0 && time_s >= max_time) {
+            std::cout << "[UAV] Simulation time finished. Exiting." << std::endl;
+            break; 
+        }
+
         sensors::UAVTelemetry msg;
 
         // Set timestamp and UAV ID
