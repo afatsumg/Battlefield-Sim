@@ -1,7 +1,7 @@
 # Distributed Battlefield Simulator
 
-This repository implements a **high-performance Network-Centric Warfare (NCW) simulation**.  
-It features real-time multi-sensor streams, an **industry-grade Kalman Filter fusion service**, and a validation pipeline that demonstrates how **multi-sensor synergy reduces tracking error from hundreds of meters to sub–5-meter precision**.
+This repository implements a **distributed battlefield simulator**.  
+It features real-time multi-sensor streams, an **Kalman Filter fusion service**, and a validation method that demonstrates how **multi-sensor synergy reduces tracking error from hundreds of meters to sub–5-meter precision**. It also compares the effect of the sensor physics.
 
 Error Comparison:
 
