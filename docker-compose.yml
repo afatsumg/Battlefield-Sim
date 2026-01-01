@@ -87,13 +87,13 @@ services:
       - ./logs:/workspace/shared
     environment:
       <<: *common-env
-      RADAR_ID: "STIR-PRECISION-TRACK"
+      RADAR_ID: "AN-MPQ-53-PATRIOT" # Updated ID
       RADAR_LAT: 39.940
       RADAR_LON: 32.855
-      RADAR_RANGE_SIGMA: ${RADAR2_SIGMA_R:-5.0}
-      RADAR_BEARING_SIGMA: ${RADAR2_SIGMA_B:-0.1}
+      RADAR_RANGE_SIGMA: 5.0   # High precision tracking
+      RADAR_BEARING_SIGMA: 0.1 # High precision bearing
       RADAR_RCS_ACTIVE: "true"
-      RADAR_SENSITIVITY: 1e-13
+      RADAR_SENSITIVITY: 1e-15 # More sensitive than previous setting
     command: bash -lc "cd /workspace/build && ./services/sensor_radar/sensor_radar"
     depends_on:
       - fusion_service

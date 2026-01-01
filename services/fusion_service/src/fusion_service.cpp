@@ -81,17 +81,16 @@ grpc::Status FusionServiceImpl::StreamSigint(
     return grpc::Status::OK;
 }
 
-void FusionServiceImpl::LogToCSV(const std::string &path, const std::string &header, const std::string &line)
+void FusionServiceImpl::LogToCSV(const std::string &path, const std::string &line)
 {
+    // Mutex for thread-safe logging
     std::lock_guard<std::mutex> lock(mtx_);
-    bool exists = std::filesystem::exists(path);
+    
+    // App mode is used to append without overwriting
     std::ofstream ofs(path, std::ios::app);
     if (ofs.is_open())
     {
-        if (!exists)
-            ofs << header << "\n";
         ofs << line << "\n";
-        ofs.close();
     }
 }
 
@@ -100,11 +99,26 @@ void FusionServiceImpl::FusionLoop()
     uint64_t last_fusion_time = 0;
     double raw_uav_lat = 0.0, raw_uav_lon = 0.0, raw_uav_alt = 0.0;
 
+    const std::string report_path = "/workspace/shared/logs/results.csv";
+    const std::string header = "ts,f_lat,f_lon,uav_lat,uav_lon,error_m,sources";
+
+    {
+        std::ofstream ofs(report_path, std::ios::trunc); // ios::trunc removes old content
+        if (ofs.is_open())
+        {
+            ofs << header << "\n";
+            ofs.close();
+            std::cout << "[FUSION] Log file initialized: " << report_path << std::endl;
+        }
+        else
+        {
+            std::cerr << "[ERROR] Could not initialize log file!" << std::endl;
+        }
+    }
+
     // Map to store each sensor's Sigma values coming from Docker
     // In real systems this data comes from a "Sensor Registry" service.
     std::map<std::string, double> sensor_sigma_map;
-    auto now_ts = std::chrono::system_clock::now().time_since_epoch().count();
-    std::string report_path = "/workspace/shared/logs/comparison_report_" + std::to_string(now_ts) + ".csv";
 
     while (running_)
     {
@@ -153,7 +167,7 @@ void FusionServiceImpl::FusionLoop()
             {
                 sigma = 50.0;
             }
-            else if (m.sensor_id == "STIR-PRECISION-TRACK")
+            else if (m.sensor_id == "AN-MPQ-53-PATRIOT")
             {
                 sigma = 5.0;
             }
@@ -198,7 +212,7 @@ void FusionServiceImpl::FusionLoop()
             ft.mutable_position()->set_lat(f_lat);
             ft.mutable_position()->set_lon(f_lon);
             ft.mutable_position()->set_alt(raw_uav_alt != 0 ? raw_uav_alt : 1250.0);
-            ft.set_confidence(0.95); // Confidence increases when STIR is active
+            ft.set_confidence(0.95);
             ft.clear_source_sensors();
             for (const auto &s : active_sources)
                 ft.add_source_sensors(s);
@@ -211,7 +225,7 @@ void FusionServiceImpl::FusionLoop()
         for (size_t i = 0; i < active_sources.size(); ++i)
             ss << active_sources[i] << (i < active_sources.size() - 1 ? ";" : "");
 
-        LogToCSV(report_path, "ts,f_lat,f_lon,uav_lat,uav_lon,error_m,sources", ss.str());
+        LogToCSV(report_path, ss.str());
     }
 }
 
@@ -240,14 +254,18 @@ double FusionServiceImpl::CalculateHaversine(double lat1, double lon1, double la
     return EARTH_RADIUS * 2 * asin(sqrt(a));
 }
 
-void FusionServiceImpl::StartTimeoutThread(int duration_sec) {
-    if (duration_sec <= 0) return;
-    
-    std::thread([this, duration_sec]() {
-        std::this_thread::sleep_for(std::chrono::seconds(duration_sec));
-        std::cout << "[FUSION] Simulation duration reached. Shutting down..." << std::endl;
-        this->running_ = false; // Stop the fusion loop
-        std::this_thread::sleep_for(std::chrono::seconds(1)); // Wait a moment for writing final logs
-        std::exit(0); // For stopping the container
-    }).detach();
+void FusionServiceImpl::StartTimeoutThread(int duration_sec)
+{
+    if (duration_sec <= 0)
+        return;
+
+    std::thread([this, duration_sec]()
+                {
+                    std::this_thread::sleep_for(std::chrono::seconds(duration_sec));
+                    std::cout << "[FUSION] Simulation duration reached. Shutting down..." << std::endl;
+                    this->running_ = false;                               // Stop the fusion loop
+                    std::this_thread::sleep_for(std::chrono::seconds(1)); // Wait a moment for writing final logs
+                    std::exit(0);                                         // For stopping the container
+                })
+        .detach();
 }
