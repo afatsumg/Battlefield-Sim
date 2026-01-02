@@ -68,7 +68,4 @@ private:
 
     // Helper metodlar
     uint32_t ResolveId(const std::string &ext_id);
-    common::GeoPoint PolarToGeo(double range, double bearing, const common::GeoPoint &origin);
-    double CalculateHaversine(double lat1, double lon1, double lat2, double lon2);
-    void LogToCSV(const std::string &path, const std::string &line);
 };

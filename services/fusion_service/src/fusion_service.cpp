@@ -9,6 +9,9 @@
 #include <map>
 #include <numeric>
 
+#include "geo_utils.h"
+#include "utils/logging.h"
+
 namespace
 {
     constexpr double EARTH_RADIUS = 6371000.0;
@@ -81,18 +84,6 @@ grpc::Status FusionServiceImpl::StreamSigint(
     return grpc::Status::OK;
 }
 
-void FusionServiceImpl::LogToCSV(const std::string &path, const std::string &line)
-{
-    // Mutex for thread-safe logging
-    std::lock_guard<std::mutex> lock(mtx_);
-    
-    // App mode is used to append without overwriting
-    std::ofstream ofs(path, std::ios::app);
-    if (ofs.is_open())
-    {
-        ofs << line << "\n";
-    }
-}
 
 void FusionServiceImpl::FusionLoop()
 {
@@ -177,7 +168,7 @@ void FusionServiceImpl::FusionLoop()
 
             double pred_lat, pred_lon, v_lat, v_lon;
             kf.GetState(pred_lat, pred_lon, v_lat, v_lon);
-            double innovation = CalculateHaversine(m.lat, m.lon, pred_lat, pred_lon);
+            double innovation = geo_utils::CalculateHaversine(m.lat, m.lon, pred_lat, pred_lon);
 
             // Gating: Filter very large deviations (outliers)
             double adaptive_R = base_R;
@@ -202,7 +193,7 @@ void FusionServiceImpl::FusionLoop()
             continue;
         }
 
-        double error_m = (raw_uav_lat != 0.0) ? CalculateHaversine(f_lat, f_lon, raw_uav_lat, raw_uav_lon) : 0.0;
+        double error_m = (raw_uav_lat != 0.0) ? geo_utils::CalculateHaversine(f_lat, f_lon, raw_uav_lat, raw_uav_lon) : 0.0;
 
         // Send to Monitor service
         {
@@ -225,34 +216,11 @@ void FusionServiceImpl::FusionLoop()
         for (size_t i = 0; i < active_sources.size(); ++i)
             ss << active_sources[i] << (i < active_sources.size() - 1 ? ";" : "");
 
-        LogToCSV(report_path, ss.str());
+        utils::LogToCSV(report_path, ss.str(), mtx_);
     }
 }
 
-common::GeoPoint FusionServiceImpl::PolarToGeo(double range, double bearing, const common::GeoPoint &origin)
-{
-    const double R = 6371000.0;
-    double ad = range / R;
-    double brng = bearing * M_PI / 180.0;
-    double lat1 = origin.lat() * M_PI / 180.0;
-    double lon1 = origin.lon() * M_PI / 180.0;
 
-    double lat2 = asin(sin(lat1) * cos(ad) + cos(lat1) * sin(ad) * cos(brng));
-    double lon2 = lon1 + atan2(sin(brng) * sin(ad) * cos(lat1), cos(ad) - sin(lat1) * sin(lat2));
-
-    common::GeoPoint target;
-    target.set_lat(lat2 * 180.0 / M_PI);
-    target.set_lon(lon2 * 180.0 / M_PI);
-    return target;
-}
-
-double FusionServiceImpl::CalculateHaversine(double lat1, double lon1, double lat2, double lon2)
-{
-    double dLat = (lat2 - lat1) * M_PI / 180.0;
-    double dLon = (lon2 - lon1) * M_PI / 180.0;
-    double a = pow(sin(dLat / 2), 2) + pow(sin(dLon / 2), 2) * cos(lat1 * M_PI / 180.0) * cos(lat2 * M_PI / 180.0);
-    return EARTH_RADIUS * 2 * asin(sqrt(a));
-}
 
 void FusionServiceImpl::StartTimeoutThread(int duration_sec)
 {

@@ -10,6 +10,7 @@ add_executable(${TARGET} ${SOURCES} ${HEADERS})
 target_include_directories(${TARGET}
     PRIVATE
         ${CMAKE_SOURCE_DIR}/generated
+        ${CMAKE_SOURCE_DIR}/services/common_utils
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
@@ -18,6 +19,7 @@ find_package(gRPC CONFIG REQUIRED)
 
 target_link_libraries(${TARGET}
     PRIVATE
+        common_utils
         project_protos 
         gRPC::grpc++
         protobuf::libprotobuf

@@ -130,6 +130,7 @@ endif()
 target_link_libraries(project_protos PUBLIC gRPC::grpc protobuf::libprotobuf)
 
 # Add subdirectories for other services
+add_subdirectory(services/common_utils)
 add_subdirectory(services/fusion_service)
 add_subdirectory(services/sensor_uav)
 add_subdirectory(services/sensor_radar)
