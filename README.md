@@ -52,7 +52,7 @@ The system is containerized using Docker/Docker Compose and includes an automate
 |-----------|---------|-----------|
 | **UAV Service** | Simulates aerial platform GPS/INS telemetry | C++, gRPC |
 | **Radar Service** | Multi-element radar with dynamic RCS model | C++, gRPC, Physics |
-| **SIGINT Service** | Electronic signal detection and localization | C++, gRPC |
+| **SIGINT Service** | Electronic signal detection and localization (simulated; not currently fused) | C++, gRPC |
 | **Fusion Service** | Real-time Kalman filtering & track fusion | C++, OpenCV, gRPC |
 | **Monitor Service** | Real-time fusion state visualization | C++, gRPC |
 | **Auto-Simulation** | DO-178C test framework & reporting | Python 3, Docker Compose |
@@ -192,6 +192,17 @@ double signal_strength = rcs / pow(range, 4);
 // Detection threshold: signal_strength > RADAR_SENSITIVITY
 if (signal_strength > 1e-12) { /* Detect target */ }
 ```
+**Environment Variables (docker-compose.yml):**
+
+### Additional Radar Physics Checks
+
+The radar simulator now performs several additional physical checks before declaring a detection:
+
+- Rain attenuation: uses a simplified ITU-R model to compute two-way loss (dB) and applies it as a linear attenuation factor to the received signal.
+- Signal strength composition: final detection test uses composite signal = (RCS * antenna_gain_linear) / range^4 * weather_factor.
+- Doppler / range-rate: range-rate based checks were removed from the sensor-side (UAV speed is not a reliable environment parameter); any Doppler or radial-velocity estimation should be performed/validated on the fusion side.
+
+These checks are implemented in `services/common_utils/physics.{h,cpp}` and exercised by `sensor_radar` when `RADAR_RCS_ACTIVE` is enabled.
 
 **Environment Variables (docker-compose.yml):**
 ```yaml

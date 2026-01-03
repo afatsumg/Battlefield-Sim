@@ -3,6 +3,7 @@ import os
 import shutil
 import time
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 # Import our scalable requirements engine
@@ -21,6 +22,7 @@ TEST_SUITE = {
     "TC-ACC-03": {"name": "interceptor_300ms", "env": {"UAV_SPEED": "300.0"}},
     "TC-GEO-01": {"name": "north_approach", "env": {"UAV_LAT": "39.80", "UAV_HEADING": "0.0"}},
     "TC-GEO-02": {"name": "diagonal_approach", "env": {"UAV_LAT": "39.80", "UAV_HEADING": "45.0"}},
+    "TC-GEO-03": {"name": "rainy_weather", "env": {"UAV_LAT": "39.80", "UAV_HEADING": "45.0", "RAIN_RATE_MMH": "5.0"}},
 }
 
 class TestExecutive:
@@ -43,6 +45,11 @@ class TestExecutive:
 
         # 1. Clean environment (Pre-test cleanup)
         subprocess.run(["docker-compose", "down", "-v"], env=full_env, capture_output=True)
+        
+        # Clean any residual CSV log files to ensure fresh state
+        if os.path.exists(LOG_SOURCE):
+            os.remove(LOG_SOURCE)
+            print(f"[INFO] Cleared residual log: {LOG_SOURCE}")
 
         # 2. Launch simulation
         try:
@@ -70,10 +77,15 @@ class TestExecutive:
 
     def plot_tc_result(self, tc_id, df, verdict, name):
         """Generates visual evidence for the Test Case."""
+        # Skip plotting if dataframe is empty or too small
+        if len(df) < 10:
+            print(f"[WARNING] {tc_id}: Insufficient data for plotting ({len(df)} rows)")
+            return
+        
         plt.figure(figsize=(12, 6))
         
-        # Plot Error over Time
-        time_axis = df.index * 0.1  # Assuming 100ms ticks
+        # Plot Error over Time (use range instead of index to avoid type issues)
+        time_axis = np.arange(len(df)) * 0.1  # 100ms ticks
         plt.plot(time_axis, df['error_m'], label='Fusion Error (m)', color='#1f77b4', linewidth=1.5)
         
         # Draw Threshold Lines from Validator
@@ -121,21 +133,34 @@ class TestExecutive:
             
             if csv_path:
                 df = pd.read_csv(csv_path)
-                # Call our scalable validator
-                verdict = self.validator.verify_scenario(df)
                 
-                all_results.append({
-                    "id": tc_id,
-                    "name": config['name'],
-                    "verdict": verdict["status"],
-                    "checks": verdict["checks"]
-                })
+                # Skip if CSV is empty (no measurements recorded)
+                if len(df) == 0:
+                    print(f"[WARNING] {tc_id}: No data recorded. Skipping validation and plotting.")
+                    all_results.append({
+                        "id": tc_id,
+                        "name": config['name'],
+                        "verdict": "INCOMPLETE",
+                        "checks": {}
+                    })
+                else:
+                    # Call our scalable validator
+                    verdict = self.validator.verify_scenario(df)
+                    
+                    all_results.append({
+                        "id": tc_id,
+                        "name": config['name'],
+                        "verdict": verdict["status"],
+                        "checks": verdict["checks"]
+                    })
 
-                # Generate Plot
-                self.plot_tc_result(tc_id, df, verdict, config['name'])
+                    # Generate Plot
+                    self.plot_tc_result(tc_id, df, verdict, config['name'])
 
                 # Cleanup after each TC
                 subprocess.run(["docker-compose", "down", "-v"], capture_output=True)
+            else:
+                print(f"[ERROR] {tc_id}: No CSV log found, cannot process.")
 
         self.generate_final_report(all_results)
 

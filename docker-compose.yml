@@ -5,7 +5,8 @@
 x-common-env: &common-env
   FUSION_ADDR: "fusion_service:6000"
   SHARED_TRUTH_PATH: "/workspace/shared/ground_truth.txt"
-  SIM_DURATION_SEC: ${SIM_DURATION_SEC:-30} 
+  SIM_DURATION_SEC: ${SIM_DURATION_SEC:-30}
+  RAIN_RATE_MMH: ${RAIN_RATE_MMH:-0.0} 
 
 services:
   fusion_service:

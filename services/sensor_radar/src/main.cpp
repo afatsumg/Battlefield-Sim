@@ -17,7 +17,7 @@ int main()
     // --- Environment Config ---
     const char *env_addr = std::getenv("FUSION_ADDR");
     std::string fusion_target = env_addr ? env_addr : "fusion_service:6000";
-    
+
     const char *env_rcs_active = std::getenv("RADAR_RCS_ACTIVE");
     bool enable_dynamic_rcs = (env_rcs_active && std::string(env_rcs_active) == "true");
 
@@ -32,6 +32,11 @@ int main()
     double bearing_sigma_val = utils::GetEnvDouble("RADAR_BEARING_SIGMA", 1.0);
     double sim_duration = utils::GetEnvDouble("SIM_DURATION_SEC", 0.0);
 
+    // --- Advanced Radar Parameters ---
+    double radar_carrier_freq_hz = utils::GetEnvDouble("RADAR_CARRIER_FREQ_HZ", 3e9); // S-band
+    double rain_rate_mmh = utils::GetEnvDouble("RAIN_RATE_MMH", 0.0);                 // mm/h
+    double radar_frequency_ghz = radar_carrier_freq_hz / 1e9;                         // Convert to GHz
+
     // --- Init ---
     auto channel = grpc::CreateChannel(fusion_target, grpc::InsecureChannelCredentials());
     RadarClient client(channel);
@@ -43,7 +48,7 @@ int main()
     std::normal_distribution<> range_noise(0.0, range_sigma_val);
     std::normal_distribution<> bearing_noise(0.0, bearing_sigma_val);
 
-    std::cout << "[" << radar_id << "] Booted. RCS_MODEL=" << (enable_dynamic_rcs ? "ON" : "OFF") 
+    std::cout << "[" << radar_id << "] Booted. RCS_MODEL=" << (enable_dynamic_rcs ? "ON" : "OFF")
               << " | SENSITIVITY=" << radar_sensitivity << std::endl;
 
     auto start_time = std::chrono::steady_clock::now();
@@ -51,10 +56,12 @@ int main()
     while (true)
     {
         // Zaman kontrolü
-        if (sim_duration > 0) {
+        if (sim_duration > 0)
+        {
             auto now_clock = std::chrono::steady_clock::now();
             double elapsed = std::chrono::duration_cast<std::chrono::seconds>(now_clock - start_time).count();
-            if (elapsed >= sim_duration) {
+            if (elapsed >= sim_duration)
+            {
                 std::cout << "[" << radar_id << "] Duration reached. Shutting down." << std::endl;
                 break;
             }
@@ -62,24 +69,36 @@ int main()
 
         double gt_lat, gt_lon, gt_alt, gt_ts, gt_heading;
         std::ifstream ifs(truth_path);
-        
+
         if (ifs >> gt_lat >> gt_lon >> gt_alt >> gt_ts >> gt_heading)
         {
             double true_rng = geo_utils::CalculateHaversine(radar_lat, radar_lon, gt_lat, gt_lon);
-            double rcs_to_use = 2.0; 
+            double rcs_to_use = 2.0;
 
-            if (enable_dynamic_rcs) {
+            if (enable_dynamic_rcs)
+            {
                 rcs_to_use = physics::CalculateAspectRCS(gt_lat, gt_lon, gt_heading, radar_lat, radar_lon);
             }
 
-            // --- Physics Check ---
-            double signal_strength = physics::CalculateSignalStrength(rcs_to_use, true_rng);
+            // === ADVANCED PHYSICS CALCULATIONS ===
+
+            // 1. Rain attenuation (two-way path loss from weather)
+            double rain_atten_db = physics::CalculateRainAttenuation(radar_frequency_ghz,
+                                                                     true_rng / 1000.0, rain_rate_mmh);
+            double weather_factor = std::pow(10.0, -rain_atten_db / 10.0);
+
+            // Bearing
+            double bearing_to_uav = geo_utils::BearingDegrees(radar_lat, radar_lon, gt_lat, gt_lon);
+
+            // Composite signal strength with all physical effects
+            // Signal = (RCS * antenna_gain) / range^4 * weather_attenuation
+            double signal_strength = physics::CalculateSignalStrength(rcs_to_use, true_rng) * weather_factor;
 
             if (signal_strength > radar_sensitivity)
             {
                 double noisy_rng = true_rng + range_noise(gen);
-                double noisy_brg = geo_utils::BearingDegrees(radar_lat, radar_lon, gt_lat, gt_lon) + bearing_noise(gen);
-                
+                double noisy_brg = bearing_to_uav + bearing_noise(gen);
+
                 // Compute target GPS from radar origin, range and bearing using polar-to-geo conversion
                 // (Similar to PolarToGeo but returning simple pair instead of protobuf)
                 const double R_EARTH = 6371000.0;
@@ -106,11 +125,12 @@ int main()
 
                 client.sendDetection(msg);
             }
-            else {
+            else
+            {
                 // To avoid spamming, we only log signal drops in debug or every few seconds
                 static int drop_count = 0;
                 if (drop_count++ % 50 == 0)
-                   std::cout << "[" << radar_id << "] Target stealthy or out of range. SNR low." << std::endl;
+                    std::cout << "[" << radar_id << "] Target stealthy or out of range. SNR low." << std::endl;
             }
         }
         ifs.close();
