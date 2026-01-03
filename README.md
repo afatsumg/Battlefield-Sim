@@ -1,130 +1,288 @@
-# Distributed Battlefield Simulator
+# Distributed Battlefield Simulation - Sensor Fusion System
 
-This repository implements a **distributed battlefield simulator**.  
-It features real-time multi-sensor streams, an **Kalman Filter fusion service**, and a validation method that demonstrates how **multi-sensor synergy reduces tracking error from hundreds of meters to sub–5-meter precision**. It also compares the effect of the sensor physics.
+## Overview
 
-Error Comparison:
+**Battlefield-Sim** is a distributed simulation framework for testing multi-sensor fusion algorithms in contested environments. It simulates a network of heterogeneous sensors (radar, UAV telemetry, SIGINT) that stream real-time measurements to a gRPC-based fusion service, which applies a Kalman filter to produce high-accuracy position estimates even under degraded conditions.
 
-![Error Comparison](./logs/logs/physics_vs_no_physics_error_comparison.png)
-
-Spatial Comparison:
-
-![Spatial Comparison](./logs/logs/spatial_comparison_physics_vs_no_physics.png)
-
-Tracking performance improves in both configurations once the second radar begins contributing measurements, demonstrating the expected benefit of multi-sensor fusion. When RCS and range-based physics are enabled, sensors detect the target later and behave more realistically, leading to higher error metrics due to physically plausible detection limits. Although disabling physics yields lower numerical error, it relies on unrealistically early detections. These results show that higher error in the physics-enabled case reflects increased realism, not degraded fusion performance.
+The system is containerized using Docker/Docker Compose and includes an automated test framework (following DO-178C standards) for validating fusion accuracy and convergence.
 
 ---
 
-## System Architecture & Services
+## System Architecture
 
-The system is built on a **microservices architecture**, leveraging **gRPC** for low-latency, bi-directional streaming between distributed components.
-
-| Service | Technology Stack | Description |
-|------|------------------|------------|
-| **Fusion Service** | C++, OpenCV, gRPC | The brain of the system. Implements **MSDF (Multi-Sensor Data Fusion)** using a physics-aware Kalman Filter. |
-| **UAV Simulator** | C++, Protobuf | Generates ground-truth telemetry and deterministic flight paths for validation. |
-| **TPS-77 Radar** | C++, Physics Engine | Long-range surveillance radar. High power, S-Band, lower precision (**σ = 50 m**). |
-| **STIR Radar** | C++, Physics Engine | Fire-control radar for precision tracking. X/Ka-Band, extreme accuracy (**σ = 5 m**). |
-| **Monitor CLI** | C++, gRPC | Real-time situational awareness dashboard displaying fused tracks and confidence metrics. |
-
----
-
-## Advanced Fusion Logic
-
-### Heterogeneous Sensor Weighting
-
-The Fusion Service dynamically assigns **sensor trust levels** based on physical and hardware characteristics.
-
-Within the Kalman Filter, the **Measurement Noise Covariance (R)** is derived directly from radar specifications:
-
-| Sensor ID | Role | Range Sigma (σ) | Kalman R Value (σ²) |
-|--------|------|------------------|---------------------|
-| TPS-77-LONG-RANGE | Surveillance | 50.0 m | 2500.0 |
-| STIR-PRECISION-TRACK | Engagement | 5.0 m | 25.0 |
-
-This ensures that **precision fire-control radars dominate the solution during engagement**, while long-range sensors contribute stable situational awareness.
-
----
-
-### Physics-Based Detection (RCS & 1/R⁴ Law)
-
-Radar detection is not binary. The system models **real radar physics** using the Radar Equation:
-
-- **Radar Cross Section (RCS)**  
-  - Dynamically varies with the UAV’s aspect angle
-  - Impacts received signal strength realistically
-
-- **Range Attenuation (1 / R⁴)**  
-  - Signal power decays with the fourth power of distance
-  - Long-range detections are inherently noisier
-
-- **Sensitivity Thresholds**  
-  - The STIR radar only locks onto targets once **SNR exceeds a defined threshold**
-  - Mimics real-world **Electronic Support Measures (ESM)** and fire-control logic
-
----
-
-### Innovation-Based Gating
-
-To protect against clutter, noise spikes, and false detections, the system applies **innovation-based gating**:
-
-- Computes the **innovation** (measurement − predicted state)
-- If a measurement exceeds a logical consistency threshold:
-  - The Kalman **R matrix is scaled exponentially**
-  - Prevents **track seduction** and filter divergence
-- Outliers are *deweighted*, not blindly discarded
-
-This approach preserves track continuity while maintaining robustness under degraded sensor conditions.
-
----
-
-## Key Outcomes
-
-- Realistic NCW-style sensor fusion
-- Physics-aware radar modeling
-- Stable tracks under heterogeneous sensor quality
-- Sub–5 m fusion accuracy during precision tracking
-
-This repository implements a **high-performance distributed battlefield simulation**.  
-It features real-time sensor streams (UAV, Radar, SIGINT), a **Kalman Filter-based fusion service**, and a monitoring system that provides **sub-10-meter precision** in fused tracks.
-
-## ⚙️ Prerequisites
-
-- **CMake ≥ 3.15**
-- **C++17-capable compiler**
-- **Protobuf & gRPC (C++)**
-- **OpenCV** (Required for Kalman Filter matrix operations)
-- **Docker & Docker Compose**
-
----
-
-## 🐳 Run Using Docker Compose
-
-```bash
-docker-compose up --build
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       Sensor Network                             │
+│                                                                  │
+│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐        │
+│  │ UAV Service  │   │ Radar Service │   │ SIGINT Svc   │        │
+│  │ (Telemetry)  │   │ (RCS Dynamic) │   │ (Signal Hit) │        │
+│  └──────┬───────┘   └──────┬───────┘   └──────┬───────┘        │
+│         │                  │                  │                 │
+│         │          gRPC StreamUAV()           │                 │
+│         │          gRPC StreamRadar()         │                 │
+│         │          gRPC StreamSigint()        │                 │
+└─────────┼──────────────────┼──────────────────┼─────────────────┘
+          │                  │                  │
+          └──────────────────┼──────────────────┘
+                             │
+                    ┌────────▼──────────┐
+                    │ Fusion Service    │
+                    │                   │
+                    │ ┌─────────────┐   │
+                    │ │ Kalman      │   │
+                    │ │ Filter (2D) │   │
+                    │ └─────────────┘   │
+                    │                   │
+                    │ ┌─────────────┐   │
+                    │ │ Outlier     │   │
+                    │ │ Rejection   │   │
+                    │ └─────────────┘   │
+                    └────────┬──────────┘
+                             │
+                    ┌────────▼──────────┐
+                    │ Monitor Service   │
+                    │ (CLI/Web Output)  │
+                    └───────────────────┘
 ```
 
-### Fusion Output
-- Fusion results are logged to:
+### Key Components
+
+| Component | Purpose | Technology |
+|-----------|---------|-----------|
+| **UAV Service** | Simulates aerial platform GPS/INS telemetry | C++, gRPC |
+| **Radar Service** | Multi-element radar with dynamic RCS model | C++, gRPC, Physics |
+| **SIGINT Service** | Electronic signal detection and localization | C++, gRPC |
+| **Fusion Service** | Real-time Kalman filtering & track fusion | C++, OpenCV, gRPC |
+| **Monitor Service** | Real-time fusion state visualization | C++, gRPC |
+| **Auto-Simulation** | DO-178C test framework & reporting | Python 3, Docker Compose |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Docker & Docker Compose** (v2.0+)
+- **Python 3.8+** (for test automation)
+- **CMake 3.15+** (for local C++ builds)
+
+### Quick Start
+
+#### 1. Build & Run All Services
+
 ```bash
-/workspace/shared/logs/comparison_report.csv
+# Build Docker image
+docker compose build
+
+# Start all services (runs indefinitely; Ctrl+C to stop)
+docker compose up
 ```
-- The report tracks:
-- **`error_m`** → Euclidean distance between the fused track and the actual UAV position
+
+#### 2. Run Automated Test Suite
+
+```bash
+# Execute DO-178C test suite (5 test cases, ~2-3 minutes)
+python auto_simulation.py
+
+# Output: simulation_results/batch_YYYYMMDD_HHMMSS/SVR_Summary_Report.txt
+```
 
 ---
 
-## 🔧 Extending the Project
+## How It Works
 
-### ➕ Constant Acceleration Model
-- Upgrade Kalman Filter state:
-- **4x4 → 6x6**
-- Improved tracking during **high-G maneuvers**
+### The Simulation Loop
+
+1. **Sensor Services** → Read ground truth file, apply sensor models (noise, RCS), send measurements via gRPC.
+2. **Fusion Service** → Buffer incoming measurements, apply Kalman predict/update cycle at 100ms cadence.
+3. **Monitor Service** → Export fused tracks on-demand to CLI or log files.
+4. **Test Script** → Capture CSV output, compute accuracy metrics, generate report.
 
 ---
 
-### 📐 Adaptive Gating
-- Implement **Mahalanobis distance checks**
-- Enables more robust and intelligent **outlier rejection**
+## Requirements & Verification
+
+The requirements engine is defined in `requirements.py`:
+
+### Three Core SRIDs (Software Requirement IDs)
+
+| SRID | Metric | Threshold | Check |
+|------|--------|-----------|-------|
+| **SRID-FUS-001** | Steady-state average error | **< 25 m** | Mean of errors after 10s convergence |
+| **SRID-FUS-002** | Peak error (no spikes) | **< 100 m** | Max error after convergence |
+| **SRID-FUS-003** | Convergence time | **< 10 s** | Time to drop below 20m |
+
+## Example Output Report
+
+### SVR_Summary_Report.txt
+
+```
+======================================================================
+SOFTWARE VERIFICATION RESULTS (SVR) - BATCH 20260103_003818
+DATE: 2026-01-03 00:42:30
+======================================================================
+
+TEST CASE: TC-ACC-01 [PASS]
+Scenario : nominal_speed_50ms
+------------------------------
+  SRID-FUS-001: Measured=21.11 | Average Error < 25.0m -> [PASS]
+  SRID-FUS-002: Measured=75.68 | Peak Error < 100.0m -> [PASS]
+  SRID-FUS-003: Measured=0.2 | Convergence Time < 10.0s -> [PASS]
+
+TEST CASE: TC-ACC-02 [PASS]
+Scenario : high_speed_250ms
+------------------------------
+  SRID-FUS-001: Measured=14.15 | Average Error < 25.0m -> [PASS]
+  SRID-FUS-002: Measured=38.29 | Peak Error < 100.0m -> [PASS]
+  SRID-FUS-003: Measured=0.1 | Convergence Time < 10.0s -> [PASS]
+
+TEST CASE: TC-ACC-03 [PASS]
+Scenario : interceptor_300ms
+------------------------------
+  SRID-FUS-001: Measured=14.22 | Average Error < 25.0m -> [PASS]
+  SRID-FUS-002: Measured=38.61 | Peak Error < 100.0m -> [PASS]
+  SRID-FUS-003: Measured=0.0 | Convergence Time < 10.0s -> [PASS]
+
+TEST CASE: TC-GEO-01 [FAIL]
+Scenario : north_approach
+------------------------------
+  SRID-FUS-001: Measured=19952.14 | Average Error < 25.0m -> [FAIL]
+  SRID-FUS-002: Measured=32097.97 | Peak Error < 100.0m -> [FAIL]
+  SRID-FUS-003: Measured=0.0 | Convergence Time < 10.0s -> [PASS]
+
+TEST CASE: TC-GEO-02 [FAIL]
+Scenario : diagonal_approach
+------------------------------
+  SRID-FUS-001: Measured=52.66 | Average Error < 25.0m -> [FAIL]
+  SRID-FUS-002: Measured=192.1 | Peak Error < 100.0m -> [FAIL]
+  SRID-FUS-003: Measured=14.5 | Convergence Time < 10.0s -> [FAIL]
+```
+
+**Interpretation:**
+- ✅ **Accuracy Tests (TC-ACC-01/02/03)** all pass — fusion tracks static and moving targets well at various speeds.
+- ❌ **Geographic Tests (TC-GEO-01/02)** fail — indicates a north/diagonal bearing bias; likely due to coordinate reference frame mismatch or sensor alignment issue.
+
+---
+
+## Sensor Models
+
+### Radar Service (Dynamic RCS)
+
+The radar simulator includes a realistic RCS (Radar Cross Section) model:
+
+```cpp
+// Aspect angle = difference between UAV heading and bearing from radar
+double CalculateAspectRCS(double uav_lat, double uav_lon, double uav_heading,
+                          double radar_lat, double radar_lon)
+{
+    double bearing_to_uav = geo_utils::BearingDegrees(radar_lat, radar_lon, 
+                                                       uav_lat, uav_lon);
+    double alpha_rad = abs(uav_heading - bearing_to_uav) * PI / 180.0;
+
+    // RCS model: frontal = 0.1 m², side = 2.0 m²
+    double rcs_min = 0.1;
+    double rcs_max = 2.0;
+    return rcs_min * cos²(alpha) + rcs_max * sin²(alpha);
+}
+
+// Signal strength = RCS / range⁴ (inverse square × propagation path)
+double signal_strength = rcs / pow(range, 4);
+
+// Detection threshold: signal_strength > RADAR_SENSITIVITY
+if (signal_strength > 1e-12) { /* Detect target */ }
+```
+
+**Environment Variables (docker-compose.yml):**
+```yaml
+services:
+  sensor_radar:
+    environment:
+      RADAR_ID: "TPS-77-LONG-RANGE"
+      RADAR_LAT: 39.90
+      RADAR_LON: 32.80
+      RADAR_SENSITIVITY: 1e-12
+      RADAR_RANGE_SIGMA: 30.0          # Measurement noise (meters)
+      RADAR_BEARING_SIGMA: 1.0          # Bearing noise (degrees)
+      RADAR_RCS_ACTIVE: "true"          # Enable dynamic RCS
+```
+
+### Kalman Filter (Fusion Service)
+
+2D constant-velocity Kalman filter:
+
+```
+State vector: [lat, lon, v_lat, v_lon]
+Measurement: [lat, lon]
+
+Prediction: x = F·x + w  (process noise Q)
+Update:     x = x + K·(z - H·x)  (measurement noise R)
+
+Adaptive R: If innovation > 1000m (outlier), increase R to desensitize.
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+#### Global (docker-compose.yml)
+
+```yaml
+environment:
+  SIM_DURATION_SEC: 30              # How long each test runs
+  FUSION_ADDR: "fusion_service:6000"  # Fusion service endpoint
+  SHARED_TRUTH_PATH: "/workspace/shared/ground_truth.txt"
+  SHARED_LOG_PATH: "/workspace/shared/logs"
+```
+
+#### Sensor-Specific
+
+```bash
+# UAV
+UAV_SPEED: 50.0           # m/s
+UAV_LAT: 39.93            # degrees
+UAV_LON: 32.86            # degrees
+UAV_HEADING: 90.0         # degrees (0=North, 90=East)
+
+# Radar
+RADAR_ID: "TPS-77-LONG-RANGE"
+RADAR_SENSITIVITY: 1e-12  # Minimum detectable signal
+RADAR_RCS_ACTIVE: "true"  # Use realistic RCS model
+
+```
+
+---
+
+## Directory Structure
+
+```
+Battlefield-Sim/
+├── CMakeLists.txt              # Main build configuration
+├── docker-compose.yml          # Multi-container orchestration
+├── docker/
+│   └── dev.Dockerfile          # Development container image
+├── proto/                       # Protocol Buffer definitions
+│   ├── common/                  # Shared message types
+│   ├── fusion/                  # Fusion RPC definitions
+│   └── sensors/                 # Sensor message schemas
+├── generated/                   # Auto-generated proto C++ code
+├── services/
+│   ├── common_utils/            # Shared utilities (geometry, physics, config)
+│   │   ├── geo_utils.h/cpp      # Haversine distance, bearing calculation
+│   │   ├── physics.h/cpp        # RCS aspect angle, signal strength
+│   │   └── config.h/cpp         # Environment variable parsing
+│   ├── fusion_service/          # Primary fusion engine
+│   ├── sensor_radar/            # Radar simulator
+│   ├── sensor_uav/              # UAV telemetry generator
+│   ├── sensor_sigint/           # SIGINT emulator
+│   └── monitor_cli/             # CLI monitoring tool
+├── logs/                        # Shared volume for fusion outputs
+├── simulation_results/          # Batch test outputs
+├── auto_simulation.py           # Test framework orchestrator
+├── requirements.py              # Scalable requirements engine
+└── README.md                    # This file
+```
 
 ---
