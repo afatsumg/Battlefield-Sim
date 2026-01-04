@@ -10,41 +10,7 @@ The system is containerized using Docker/Docker Compose and includes an automate
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                       Sensor Network                             │
-│                                                                  │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐        │
-│  │ UAV Service  │   │ Radar Service │   │ SIGINT Svc   │        │
-│  │ (Telemetry)  │   │ (RCS Dynamic) │   │ (Signal Hit) │        │
-│  └──────┬───────┘   └──────┬───────┘   └──────┬───────┘        │
-│         │                  │                  │                 │
-│         │          gRPC StreamUAV()           │                 │
-│         │          gRPC StreamRadar()         │                 │
-│         │          gRPC StreamSigint()        │                 │
-└─────────┼──────────────────┼──────────────────┼─────────────────┘
-          │                  │                  │
-          └──────────────────┼──────────────────┘
-                             │
-                    ┌────────▼──────────┐
-                    │ Fusion Service    │
-                    │                   │
-                    │ ┌─────────────┐   │
-                    │ │ Kalman      │   │
-                    │ │ Filter (2D) │   │
-                    │ └─────────────┘   │
-                    │                   │
-                    │ ┌─────────────┐   │
-                    │ │ Outlier     │   │
-                    │ │ Rejection   │   │
-                    │ └─────────────┘   │
-                    └────────┬──────────┘
-                             │
-                    ┌────────▼──────────┐
-                    │ Monitor Service   │
-                    │ (CLI/Web Output)  │
-                    └───────────────────┘
-```
+![Project Structure](./images/structure.png)
 
 ### Key Components
 
