@@ -275,7 +275,7 @@ For detailed CI/CD documentation, see [.github/QUICK_START.md](.github/QUICK_STA
 ### Workflows Overview
 
 #### 1. **CI/CD Pipeline** (Automatic on push/PR)
-Runs on every push to `main` or `develop` branches and on pull requests:
+Runs on every push to `master` or `develop` branches and on pull requests:
 
 ```
 Build Phase:
@@ -322,8 +322,8 @@ Validates pull requests before merging:
 After CI/CD publishes an image:
 
 ```bash
-# From main branch (latest development build)
-docker pull ghcr.io/your-username/battlefield-sim:main
+# From master branch (latest development build)
+docker pull ghcr.io/your-username/battlefield-sim:master
 
 # From specific release
 docker pull ghcr.io/your-username/battlefield-sim:v1.0.0
@@ -350,11 +350,11 @@ git commit -m "feat: add new sensor"
 git push origin feature/my-feature
 # → Open PR on GitHub
 
-# Merge to main (triggers full CI/CD pipeline)
-git checkout main
-git pull origin main
+# Merge to master (triggers full CI/CD pipeline)
+git checkout master
+git pull origin master
 git merge feature/my-feature
-git push origin main
+git push origin master
 # → CI builds, tests, and publishes Docker image
 
 # Create a release

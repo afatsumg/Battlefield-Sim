@@ -6,7 +6,7 @@ This document describes the GitHub Actions CI/CD pipeline integrated into the Ba
 
 ### 1. **CI/CD Pipeline** (`ci.yml`)
 Main continuous integration pipeline triggered on:
-- Push to `main` and `develop` branches
+- Push to `master` and `develop` branches
 - Pull request creation
 - Manual trigger (`workflow_dispatch`)
 
@@ -60,7 +60,7 @@ Special validation for pull requests
 
 ### Step 1: Repository Configuration
 1. `.github/workflows/` directory is already created with YAML files
-2. Ensure `main` and `develop` branches exist in your repository
+2. Ensure `master` and `develop` branches exist in your repository
 
 ### Step 2: GitHub Container Registry Access
 For private image publishing:
@@ -75,10 +75,10 @@ For private image publishing:
 ```
 
 ### Step 3: Branch Protection Rules (Optional)
-To protect the `main` branch in GitHub:
+To protect the `master` branch in GitHub:
 
 1. Repository Settings → Branches
-2. "Add rule" → Branch name pattern: `main`
+2. "Add rule" → Branch name pattern: `master`
 3. Enable:
    - ✓ Require status checks to pass before merging
    - ✓ Dismiss stale pull request approvals when new commits are pushed
@@ -94,9 +94,9 @@ git push origin feature/my-feature
 # Open PR on GitHub → pr-checks.yml runs automatically
 ```
 
-### Pushing to main branch
+### Pushing to master branch
 ```bash
-git push origin main
+git push origin master
 # ci.yml and docker-build run automatically
 ```
 
@@ -165,7 +165,7 @@ For external registries:
 ## Best Practices
 
 1. **Branch strategy:**
-   - `main` = production-ready
+   - `master` = production-ready
    - `develop` = integration branch
    - Feature branches: `feature/*`, `bugfix/*`, `hotfix/*`
 

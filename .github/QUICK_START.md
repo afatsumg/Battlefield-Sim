@@ -14,9 +14,9 @@ git push origin feature/my-feature
 # Open PR on GitHub → Automatic tests run
 ```
 
-### 2. Push to main branch (CI runs)
+### 2. Push to master branch (CI runs)
 ```bash
-git push origin main
+git push origin master
 # Automatic: build + test + publish docker image
 ```
 
@@ -45,8 +45,8 @@ git push origin v1.0.0
 ## Pulling Docker Image
 
 ```bash
-# Use image from main branch
-docker pull ghcr.io/your-username/battlefield-sim:main
+# Use image from master branch
+docker pull ghcr.io/your-username/battlefield-sim:master
 
 # Or specific release
 docker pull ghcr.io/your-username/battlefield-sim:v1.0.0
@@ -73,6 +73,8 @@ docker pull ghcr.io/your-username/battlefield-sim:v1.0.0
 
 **Test timeout?**
 - Increase `timeout 300` value in `ci.yml`
+
+**Note:** This project uses `master` branch instead of `main`
 
 ## Next Steps
 
