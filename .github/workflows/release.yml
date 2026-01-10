@@ -1,0 +1,195 @@
+name: Release & Deploy
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          release_name: Release ${{ steps.get_version.outputs.version }}
+          body: |
+            ## Release ${{ steps.get_version.outputs.version }}
+            
+            ### Changes
+            - Compiled binaries for Battlefield Simulation System
+            - Docker image available at `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.version }}`
+            
+            ### Installation
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.version }}
+            ```
+          draft: false
+          prerelease: false
+
+  build-and-publish:
+    runs-on: ubuntu-latest
+    needs: create-release
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git wget unzip zip tar autoconf libtool pkg-config \
+            curl ca-certificates python3 python3-pip \
+            zlib1g-dev libssl-dev ninja-build \
+            libyaml-cpp-dev libopencv-dev
+
+      - name: Install Protocol Buffers
+        run: |
+          git clone https://github.com/protocolbuffers/protobuf.git /tmp/protobuf
+          cd /tmp/protobuf
+          git checkout v33.2
+          mkdir -p cmake/build && cd cmake/build
+          cmake ../.. -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: Install Abseil
+        run: |
+          git clone --depth 1 https://github.com/abseil/abseil-cpp.git /tmp/abseil
+          cd /tmp/abseil
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr/local
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: Install gRPC
+        run: |
+          git clone --recursive -b v1.48.0 https://github.com/grpc/grpc /tmp/grpc
+          mkdir -p /tmp/grpc/cmake/build
+          cd /tmp/grpc/cmake/build
+          cmake ../.. -DgRPC_BUILD_TESTS=OFF -DgRPC_INSTALL=ON -DCMAKE_INSTALL_PREFIX=/usr/local
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local
+
+      - name: Build project
+        run: |
+          cd build
+          cmake --build . -- -j$(nproc)
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/dev.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  create-artifacts:
+    runs-on: ubuntu-latest
+    needs: create-release
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create build directory
+        run: mkdir -p build/services
+
+      - name: Generate changelog
+        run: |
+          git log --oneline -20 > CHANGELOG.txt || echo "No changelog available" > CHANGELOG.txt
+
+      - name: Create release artifacts
+        run: |
+          tar -czf battlefield-sim-src-${{ needs.create-release.outputs.version }}.tar.gz \
+            --exclude=.git --exclude=build --exclude=.github \
+            --exclude=simulation_results --exclude=__pycache__ .
+          zip -r battlefield-sim-src-${{ needs.create-release.outputs.version }}.zip \
+            -x "\.git*" "build/*" "\.github/*" "simulation_results/*" "__pycache__/*" > /dev/null
+
+      - name: Upload tarball artifact
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./battlefield-sim-src-${{ needs.create-release.outputs.version }}.tar.gz
+          asset_name: battlefield-sim-src-${{ needs.create-release.outputs.version }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload zip artifact
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./battlefield-sim-src-${{ needs.create-release.outputs.version }}.zip
+          asset_name: battlefield-sim-src-${{ needs.create-release.outputs.version }}.zip
+          asset_content_type: application/zip
+
+      - name: Upload changelog
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./CHANGELOG.txt
+          asset_name: CHANGELOG.txt
+          asset_content_type: text/plain

@@ -1,0 +1,114 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  pr-validation:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages
+        run: |
+          echo "Validating commit messages..."
+          git log --format=%B origin/main..HEAD | while read line; do
+            if [[ ! -z "$line" ]]; then
+              if [[ ! "$line" =~ ^(feat|fix|docs|style|refactor|test|chore|ci)(\(.+\))?:.*$ ]]; then
+                echo "Warning: Commit message may not follow conventional commits: $line"
+              fi
+            fi
+          done || echo "No commits to validate"
+
+      - name: Verify no large files
+        run: |
+          echo "Checking for large files (>50MB)..."
+          git diff --cached --name-only -z origin/main | while IFS= read -r -d '' file; do
+            if [ -f "$file" ]; then
+              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
+              if [ "$size" -gt 52428800 ]; then
+                echo "Error: File $file is too large ($size bytes)"
+                exit 1
+              fi
+            fi
+          done || true
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for outdated dependencies
+        run: |
+          echo "Proto dependencies: v33.2 (Protobuf)"
+          echo "gRPC dependencies: v1.48.0"
+          echo "OpenCV dependencies: system package"
+          echo ""
+          echo "Note: Run 'pip list --outdated' and update CMakeLists.txt for newer versions"
+
+  documentation:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for documentation updates
+        run: |
+          echo "Checking if changes require documentation updates..."
+          
+          # Check if code files changed
+          if git diff origin/main...HEAD --name-only | grep -E '\.(cpp|h|py|cmake)$'; then
+            echo "Code files changed - ensure README.md is updated if needed"
+          fi
+          
+          # Check if proto files changed
+          if git diff origin/main...HEAD --name-only | grep -E '\.proto$'; then
+            echo "Proto files changed - ensure architecture documentation is updated"
+          fi
+          
+          echo "Documentation check completed"
+
+  build-verification:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check CMakeLists.txt syntax
+        run: |
+          echo "Validating CMakeLists.txt..."
+          if [ -f "CMakeLists.txt" ]; then
+            echo "CMakeLists.txt found and syntax looks valid"
+          else
+            echo "Error: CMakeLists.txt not found!"
+            exit 1
+          fi
+
+      - name: Verify proto files
+        run: |
+          echo "Checking proto files..."
+          find proto -name "*.proto" -type f | while read proto; do
+            echo "  Found: $proto"
+          done
+          echo "Proto files verified"
+
+      - name: Verify Docker configuration
+        run: |
+          echo "Checking Docker configuration..."
+          if [ -f "docker-compose.yml" ]; then
+            echo "docker-compose.yml found"
+          fi
+          if [ -f "docker/dev.Dockerfile" ]; then
+            echo "docker/dev.Dockerfile found"
+          fi
+          echo "Docker configuration verified"

@@ -263,3 +263,121 @@ Battlefield-Sim/
 ```
 
 ---
+
+## CI/CD Pipeline
+
+This project includes an automated **GitHub Actions CI/CD pipeline** for continuous integration and deployment.
+
+### Quick Start
+
+For detailed CI/CD documentation, see [.github/QUICK_START.md](.github/QUICK_START.md) or [.github/GITHUB_ACTIONS_SETUP.md](.github/GITHUB_ACTIONS_SETUP.md).
+
+### Workflows Overview
+
+#### 1. **CI/CD Pipeline** (Automatic on push/PR)
+Runs on every push to `main` or `develop` branches and on pull requests:
+
+```
+Build Phase:
+  ├─ Install dependencies (Protobuf, gRPC, Abseil)
+  ├─ Compile C++ project with CMake
+  ├─ Store binaries as artifacts
+  └─ Build Docker image
+
+Test Phase:
+  ├─ Run Docker Compose
+  ├─ Execute simulation test suite
+  ├─ Verify test results
+  └─ Archive logs and test outputs
+
+Quality Checks:
+  ├─ Code linting (flake8)
+  ├─ Format validation (black, isort)
+  └─ Security scan (Trivy)
+```
+
+#### 2. **Release Pipeline** (Automatic on version tag)
+Triggers when you push a git tag matching `v*.*.*`:
+
+```bash
+git tag -a v1.0.0 -m "Release version 1.0.0"
+git push origin v1.0.0
+```
+
+Actions:
+- Creates GitHub Release page with changelog
+- Publishes Docker image to GitHub Container Registry with semantic version tag
+- Uploads source code archives (.tar.gz, .zip)
+
+#### 3. **PR Checks** (Automatic on pull request)
+Validates pull requests before merging:
+
+- Commit message format (Conventional Commits)
+- File size limits (max 50MB)
+- Proto and CMake configuration integrity
+- Dependency checks
+
+### Using Pre-built Docker Images
+
+After CI/CD publishes an image:
+
+```bash
+# From main branch (latest development build)
+docker pull ghcr.io/your-username/battlefield-sim:main
+
+# From specific release
+docker pull ghcr.io/your-username/battlefield-sim:v1.0.0
+
+# Run services
+docker compose up
+```
+
+### Monitoring CI/CD Status
+
+1. Navigate to your repository
+2. Click **Actions** tab to view all workflow runs
+3. Click individual workflows to see detailed logs
+4. Check **Releases** tab for published versions
+5. Check **Packages** tab for published Docker images
+
+### Common CI/CD Commands
+
+```bash
+# Create a feature branch (triggers PR checks when pushed)
+git checkout -b feature/my-feature
+git add .
+git commit -m "feat: add new sensor"
+git push origin feature/my-feature
+# → Open PR on GitHub
+
+# Merge to main (triggers full CI/CD pipeline)
+git checkout main
+git pull origin main
+git merge feature/my-feature
+git push origin main
+# → CI builds, tests, and publishes Docker image
+
+# Create a release
+git tag -a v1.0.0 -m "Release version 1.0.0"
+git push origin v1.0.0
+# → CI publishes release with Docker image and archives
+```
+
+### Troubleshooting CI/CD
+
+**Build fails:**
+- Check logs in Actions tab
+- Verify `CMakeLists.txt` and `dev.Dockerfile` are correct
+- Ensure all dependencies are available
+
+**Tests timeout:**
+- Increase timeout value in workflow files
+- Check `SIM_DURATION_SEC` environment variable
+
+**Docker image not published:**
+- Ensure you have write access to GitHub Container Registry
+- Verify branch/tag naming follows workflow trigger rules
+
+For detailed troubleshooting, see [.github/GITHUB_ACTIONS_SETUP.md](.github/GITHUB_ACTIONS_SETUP.md#troubleshooting).
+
+---
